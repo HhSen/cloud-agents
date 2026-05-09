@@ -1,262 +1,183 @@
-# Backend Plan (Go)
+# Backend Reference Plan (Go)
 
 Location: `/Users/didi/lucas/backend/`
 
+> **Status**: implemented. This document describes the as-built design.
+
 ## Key References
-- OpenSandbox Go SDK: `../Opensandbox/sdks/sandbox/go` (module `github.com/alibaba/OpenSandbox/sdks/sandbox/go`)
 - OpenSandbox Lifecycle API spec: `../Opensandbox/specs/sandbox-lifecycle.yml`
 - claude-agent-server OpenAPI: `../Opensandbox/sandboxes/claude-agent-server/docs/openapi.json`
 - Overview + API contract: `./overview.md`
+- Runtime reference: `../backend/README.md`
 
 ---
 
-## Step 1 — Scaffold the module
+## File Structure
 
 ```
 backend/
-├── cmd/server/main.go
+├── cmd/server/main.go                  # entry point: load config, wire deps, start server
 ├── internal/
 │   ├── api/
-│   │   ├── router.go
-│   │   └── handlers.go
+│   │   ├── router.go                   # ServeMux routes + CORS middleware
+│   │   └── handlers.go                 # HTTP handlers
 │   ├── sandbox/
-│   │   ├── manager.go
-│   │   └── proxy.go
+│   │   ├── client.go                   # native HTTP client for OpenSandbox lifecycle API + types
+│   │   ├── manager.go                  # sandbox lifecycle: create → poll → health-check → ready
+│   │   └── proxy.go                    # SSE pipe from claude-agent-server to browser
 │   └── conversation/
-│       └── store.go
-├── go.mod
+│       └── store.go                    # in-memory conversation state + sync primitives
+├── pkg/
+│   ├── config/
+│   │   └── config.go                   # YAML config loader with defaults
+│   └── constants/
+│       └── constants.go                # default Anthropic base URL and model
+├── go.mod                              # module: github.com/your-org/platform-backend, go 1.22
 └── go.sum
 ```
 
-**go.mod** — use `replace` for local Go SDK:
-```go
-module github.com/your-org/platform-backend
-
-go 1.21
-
-require (
-    github.com/alibaba/OpenSandbox/sdks/sandbox/go v0.0.0
-)
-
-replace github.com/alibaba/OpenSandbox/sdks/sandbox/go => ../Opensandbox/sdks/sandbox/go
-```
-
-Run `go mod tidy` to pull in transitive deps.
-
 ---
 
-## Step 2 — Config & entry point (`cmd/server/main.go`)
+## Config (`pkg/config/config.go`)
 
-Read env vars at startup (no config file needed for v1):
+Config is loaded from a YAML file (`config.yaml` by default). The loader sets these defaults before unmarshalling:
+
+| Field | Default |
+|---|---|
+| `server.port` | `"8081"` |
+| `server.cors_origin` | `"http://localhost:5173"` |
+| `sandbox.server_url` | `"http://localhost:8080"` |
+| `sandbox.image` | `"opensandbox/claude-agent-server:latest"` |
+
+All other fields are empty/nil by default.
+
+Config struct shape:
 
 ```go
 type Config struct {
-    Port                string // default "8081"
-    OpenSandboxURL      string // e.g. "http://localhost:8080"
-    OpenSandboxAPIKey   string
-    AnthropicAPIKey     string
-    SandboxImage        string // e.g. "opensandbox/claude-agent-server:latest"
-    CORSOrigin          string // e.g. "http://localhost:5173"
+    Server    ServerConfig
+    Sandbox   SandboxConfig    // api_key, server_url, image, platform (optional)
+    Anthropic AnthropicConfig  // api_key, base_url, model, disable_experimental_betas
+    OrangeFS  OrangeFSConfig   // addr, volume
 }
 ```
 
-`main.go` responsibilities:
-1. Load config from env
-2. Build `opensandbox.ConnectionConfig{Domain: cfg.OpenSandboxURL, APIKey: cfg.OpenSandboxAPIKey}`
-3. Construct `sandbox.Manager` and `conversation.Store`
-4. Build router and start `http.ListenAndServe`
+---
+
+## Entry Point (`cmd/server/main.go`)
+
+1. Parse `-config` flag (default `config.yaml`)
+2. Load config via `config.Load`
+3. Build `baseEnv` map: always includes `ANTHROPIC_API_KEY` and `PORT=3000`; conditionally adds `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS`, `ORANGEFS_RS_ADDR`, `ORANGEFS_VOLUME` if non-empty
+4. Construct `PlatformSpec` if both `platform.os` and `platform.arch` are set
+5. Wire `conversation.Store`, `sandbox.Manager`, `api.Router`
+6. `http.ListenAndServe`
 
 ---
 
-## Step 3 — Conversation store (`internal/conversation/store.go`)
+## Conversation Store (`internal/conversation/store.go`)
 
-In-memory state (good enough for v1, no persistence needed):
+In-memory state protected by `sync.RWMutex`:
 
 ```go
-type ConversationState int
+type State int
 const (
-    StateNew          ConversationState = iota
-    StateProvisioning                   // sandbox being created
-    StateRunning                        // sandbox up, agent ready
+    StateNew          State = iota
+    StateProvisioning       // sandbox being created
+    StateRunning            // sandbox up, agent ready
     StateError
 )
 
 type Conversation struct {
     ID             string
-    State          ConversationState
-    SandboxID      string
-    ProxyBaseURL   string            // http://localhost:8080/sandboxes/:id/proxy/3000
-    ProxyHeaders   map[string]string // headers returned by endpoint resolver
-    AgentSessionID string            // set after first SSE session.init event
-}
-
-type Store struct {
-    mu    sync.RWMutex
-    convs map[string]*Conversation
+    state          State
+    sandboxID      string
+    proxyBaseURL   string
+    proxyHeaders   map[string]string
+    agentSessionID string
+    extraEnv       map[string]string  // per-conversation env from POST body
+    once           sync.Once
+    provisionErr   error
 }
 ```
 
-Methods needed: `Create() *Conversation`, `Get(id) *Conversation`, `Delete(id)`.
+`State.String()` maps both `StateNew` and `StateProvisioning` → `"provisioning"`.
+
+`Store.Create(extraEnv)` accepts optional extra env vars that are merged into the sandbox at provision time. `EnsureProvisioned(fn)` calls `fn` exactly once; concurrent callers block until done.
 
 ---
 
-## Step 4 — Sandbox manager (`internal/sandbox/manager.go`)
+## Sandbox Manager (`internal/sandbox/manager.go`)
 
-Wraps the OpenSandbox Go SDK. Responsibilities:
-1. Create sandbox via SDK
-2. Poll until `Running` with backoff
-3. Resolve proxy URL for port 3000
-4. Store results in conversation
+Uses a native HTTP client (`internal/sandbox/client.go`) — no SDK.
 
-**Key SDK usage:**
+**`ProvisionForConversation` flow:**
 
-```go
-import opensandbox "github.com/alibaba/OpenSandbox/sdks/sandbox/go"
+1. Merge `baseEnv` with `conv.ExtraEnv()` (per-conversation overrides win)
+2. `POST /v1/sandboxes` with image, platform, entrypoint, timeout (3600s), resource limits, env
+3. Poll `GET /v1/sandboxes/:id` every 2s until `Running` (90s timeout); fail on `Failed`/`Terminated`
+4. Construct `proxyBaseURL = {serverURL}/sandboxes/{sandboxID}/proxy/3000` directly
+5. Build `proxyHeaders = {"Authorization": "Bearer <apiKey>"}` (if apiKey non-empty)
+6. Health-check: poll `GET {proxyBaseURL}/health` every 2s until `{"healthy": true}` (60s timeout)
+7. `conv.SetRunning(sandboxID, proxyBaseURL, proxyHeaders)`
 
-// Create
-sb, err := opensandbox.CreateSandbox(ctx, connConfig, opensandbox.SandboxCreateOptions{
-    Image:   cfg.SandboxImage,
-    Timeout: &timeout,               // seconds, int
-    Env: map[string]string{
-        "ANTHROPIC_API_KEY": cfg.AnthropicAPIKey,
-        "PORT":              "3000",
-    },
-})
-
-// Poll (every 2s, timeout 90s)
-for {
-    info, err := sb.Info()
-    if info.Status.State == "Running" { break }
-    if info.Status.State == "Failed"  { return error }
-    time.Sleep(2 * time.Second)
-}
-
-// Resolve proxy URL
-endpoint, err := sb.GetEndpoint(ctx, 3000)
-// endpoint.Endpoint = "localhost:8080/sandboxes/<id>/proxy/3000"
-// endpoint.Headers  = map[string]string{"...": "..."}
-
-proxyBaseURL := "http://" + endpoint.Endpoint
-```
-
-Note: `GetEndpoint` returns the path/host without scheme. Prepend `http://`.
-
-**Public method signature:**
-```go
-func (m *Manager) ProvisionForConversation(ctx context.Context, conv *conversation.Conversation) error
-```
-
-Updates `conv.SandboxID`, `conv.ProxyBaseURL`, `conv.ProxyHeaders`, sets `conv.State = StateRunning`.
+**Auth split:**
+- Lifecycle calls (`client.go`): `OPEN-SANDBOX-API-KEY: <key>`
+- Proxy calls (`manager.go`, `proxy.go`): `Authorization: Bearer <key>`
 
 ---
 
-## Step 5 — SSE proxy (`internal/sandbox/proxy.go`)
+## SSE Proxy (`internal/sandbox/proxy.go`)
 
-Responsibilities:
-1. Build the upstream request to claude-agent-server (through OpenSandbox proxy)
-2. Pipe the SSE response stream back to the browser HTTP response
-3. Extract `agentSessionID` from the `session.init` event and persist it
+**`StreamMessage(ctx, conv, prompt, w)` flow:**
 
-**Upstream URL logic:**
-```
-First message:    POST {conv.ProxyBaseURL}/sessions
-Follow-up:        POST {conv.ProxyBaseURL}/sessions/{conv.AgentSessionID}/messages
-```
-
-**Request body to claude-agent-server:**
-```json
-{ "prompt": "<user text>", "stream": true }
-```
-
-**SSE parsing to extract sessionId:**
-Read the stream line by line. When you see:
-```
-event: session.init
-data: {"sessionId":"abc123",...}
-```
-Parse the data JSON, save `sessionId` → `conv.AgentSessionID`.  
-Then keep piping ALL lines verbatim to the browser.
-
-**Browser response headers to set:**
-```
-Content-Type: text/event-stream
-Cache-Control: no-cache
-Connection: keep-alive
-X-Accel-Buffering: no
-```
-
-**Forward `conv.ProxyHeaders`** as request headers to the upstream call.
+1. If `conv.GetAgentSessionID() == ""`: `POST {proxyBaseURL}/sessions`
+   Else: `POST {proxyBaseURL}/sessions/{agentSessionID}/messages`
+2. Body: `{"prompt": "...", "stream": true}`
+3. Forward `proxyHeaders` on the upstream request
+4. Set browser response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `X-Accel-Buffering: no`
+5. Scan line by line:
+   - On `session.init` data: extract `sessionId`, call `conv.SetAgentSessionID`
+   - All lines: forwarded verbatim
+   - Flush after each line
+6. Client disconnect handled by `ctx` cancellation
 
 ---
 
-## Step 6 — HTTP handlers (`internal/api/handlers.go`)
+## HTTP Handlers (`internal/api/handlers.go`)
 
-```go
-func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request)
-    // generate uuid, create Conversation{State: StateNew}, return {id}
+```
+CreateConversation  POST /api/conversations
+    body (optional): { "env": { "KEY": "VALUE" } }
+    → 201 { "id": "<uuid>" }
 
-func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request)
-    // 1. get conv from store (404 if missing)
-    // 2. if conv.State == StateNew:
-    //      set State = StateProvisioning
-    //      call manager.ProvisionForConversation(ctx, conv) — blocks until Running or error
-    //      on error: set State = StateError, return 502
-    // 3. call proxy.StreamMessage(ctx, conv, prompt, w)
+SendMessage         POST /api/conversations/{id}/messages
+    body: { "prompt": "..." }
+    → SetProvisioning → EnsureProvisioned → StreamMessage
+    → 502 on provision failure, 200 SSE on success
 
-func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request)
-    // return conv state + sandboxId
+GetConversation     GET /api/conversations/{id}
+    → 200 { "id", "sandboxState", "sandboxId", "agentSessionId" }
 
-func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request)
-    // call opensandbox delete sandbox API, remove from store
+DeleteConversation  DELETE /api/conversations/{id}
+    → delete from store → async DeleteSandbox → 204
 
-func (h *Handler) Health(w http.ResponseWriter, r *http.Request)
-    // return {"status":"ok"}
+Health              GET /health
+    → 200 { "status": "ok" }
 ```
 
 ---
 
-## Step 7 — Router (`internal/api/router.go`)
+## Router (`internal/api/router.go`)
 
-Use `net/http` stdlib mux (or `github.com/go-chi/chi/v5`):
-
-```
-POST   /api/conversations            → CreateConversation
-POST   /api/conversations/{id}/messages → SendMessage
-GET    /api/conversations/{id}       → GetConversation
-DELETE /api/conversations/{id}       → DeleteConversation
-GET    /health                       → Health
-```
-
-Add CORS middleware: allow `cfg.CORSOrigin`, methods `GET,POST,DELETE,OPTIONS`, headers `Content-Type`.
-
----
-
-## Step 8 — Run & verify
-
-```bash
-cd backend
-go mod tidy
-go build ./...                    # should compile clean
-go run ./cmd/server
-
-# Quick smoke tests (replace values as needed):
-curl -X POST http://localhost:8081/api/conversations
-# → {"id":"<uuid>"}
-
-curl -X POST http://localhost:8081/api/conversations/<id>/messages \
-  -H "Content-Type: application/json" \
-  -d '{"prompt":"say hello"}' \
-  --no-buffer
-# → SSE stream with session.init, message.assistant, etc.
-```
+Uses Go 1.22+ stdlib mux (`net/http.ServeMux` with method+path patterns). CORS middleware allows `cfg.CORSOrigin`, methods `GET, POST, DELETE, OPTIONS`, headers `Content-Type`.
 
 ---
 
 ## Notes & Gotchas
 
-- `ProvisionForConversation` will take 10-30s on cold start. The frontend must handle this latency (show "Starting workspace…" status).
-- Concurrent messages to the same conversation while provisioning: use a mutex or a `sync.Once` per conversation so only one goroutine provisions.
-- The `ProxyBaseURL` from `GetEndpoint` may not include the scheme — always prepend `http://`.
-- claude-agent-server's `session.completed` is the terminal SSE event; close the pipe after receiving it.
-- If the client disconnects mid-stream, cancel the upstream request via `ctx` cancellation.
-- `AgentSessionID` is parsed from the first SSE `session.init` event's JSON `data` field. This ID must be saved before the conversation can accept a second message.
+- `ProvisionForConversation` takes 10-30s cold (sandbox start + health check). Frontend must handle latency (StatusBadge "Starting workspace…").
+- The health check bridges the gap between the container reaching `Running` state and the agent server process being ready. Auth errors from the health endpoint are not retried.
+- `AgentSessionID` is set from the first `session.init` SSE event. Until it's set, `GetAgentSessionID()` returns `""` which routes to `POST /sessions`. After it's set all subsequent messages use `POST /sessions/{sid}/messages`.
+- `context.Background()` is intentional for provisioning: client disconnects don't abort sandbox creation so reconnects can reuse it.
+- Per-conversation `extraEnv` (from `POST /api/conversations` body) overrides `baseEnv` keys.

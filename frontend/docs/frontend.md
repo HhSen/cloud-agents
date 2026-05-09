@@ -104,16 +104,16 @@ const { messages, sandboxState, sending, sendMessage } = useChat()
 
 ### `ChatPage` (`src/pages/ChatPage.tsx`)
 
-Root layout. Three-row flex column filling `100dvh` (dynamic viewport — avoids mobile browser chrome issues):
+Root layout. Three-row flex column filling `100dvh` (dynamic viewport — avoids mobile browser chrome issues). App title is **"Lucas"**.
 
 ```
 ┌──────────────────────────────┐
-│  header: title + StatusBadge │
+│  "Lucas"  |  StatusBadge     │  ← header (border-b)
 ├──────────────────────────────┤
 │  ScrollArea (flex-1)         │
 │    empty state or messages   │
 ├──────────────────────────────┤
-│  ChatInput (sticky bottom)   │
+│  ChatInput (border-t)        │
 └──────────────────────────────┘
 ```
 
@@ -126,11 +126,11 @@ Renders one message bubble.
 - **User** — right-aligned, dark neutral bubble, plain text (`whitespace-pre-wrap`).
 - **Assistant** — left-aligned, light neutral bubble, rendered as Markdown via `react-markdown`. Appends a blinking cursor while `status === 'streaming'`.
 - **Error** — red tint + `AlertCircle` icon regardless of role.
-- **Tool activity** — shown as a collapsible list below the assistant text. Each item has a pulsing dot while `done === false`, green when complete.
+- **Tool activity** — shown below the assistant text behind a toggle button (`ChevronDown` icon + count label). When expanded, each item has a pulsing neutral dot while `done === false`, green dot when complete, with tool name bolded before the description.
 
 ### `ChatInput` (`src/components/ChatInput.tsx`)
 
-Textarea that auto-resizes up to ~6 lines. Submits on `Enter`; `Shift+Enter` inserts a newline. Disabled while `sending === true`.
+Textarea that auto-resizes up to ~6 lines. Submits on `Enter`; `Shift+Enter` inserts a newline. Both the send button and Enter submit are disabled while `sending === true` or the input is empty/whitespace-only.
 
 ### `StatusBadge` (`src/components/StatusBadge.tsx`)
 

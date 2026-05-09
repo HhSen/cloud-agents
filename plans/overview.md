@@ -10,10 +10,9 @@ A new product platform based on OpenSandbox. v1 is a chat interface where users 
 /Users/didi/lucas/
 ├── Opensandbox/          ← existing platform (do not modify)
 │   ├── server/           ← Python FastAPI (sandbox lifecycle API on :8080)
-│   ├── sandboxes/claude-agent-server/  ← TypeScript agent server (runs inside sandbox on :3000)
-│   └── sdks/sandbox/go/  ← Go SDK (use via replace directive)
-├── backend/              ← NEW: Go HTTP server (:8081)
-├── frontend/             ← NEW: Vite + React + shadcn/ui (:5173)
+│   └── sandboxes/claude-agent-server/  ← TypeScript agent server (runs inside sandbox on :3000)
+├── backend/              ← Go HTTP server (:8081)
+├── frontend/             ← Vite + React + shadcn/ui (:5173)
 └── plans/                ← this directory
 ```
 
@@ -27,13 +26,14 @@ Browser
   ▼
 Go backend (:8081)
   │
-  │  [first message] → POST /v1/sandboxes       (OpenSandbox Lifecycle API)
+  │  [first message] → POST /v1/sandboxes           (OpenSandbox Lifecycle API)
   │  [poll until Running] GET /v1/sandboxes/:id
-  │  [resolve URL] GET /v1/sandboxes/:id/endpoints/3000
-  │  → returns proxy URL: http://localhost:8080/sandboxes/:id/proxy/3000
+  │  [health check] GET {serverURL}/sandboxes/:id/proxy/3000/health
   │
-  │  POST {proxyURL}/sessions           (claude-agent-server — creates session + sends prompt)
-  │  POST {proxyURL}/sessions/:sid/messages  (subsequent messages)
+  │  proxyBaseURL = {serverURL}/sandboxes/:id/proxy/3000  (constructed directly)
+  │
+  │  POST {proxyBaseURL}/sessions                     (first message)
+  │  POST {proxyBaseURL}/sessions/:sid/messages       (subsequent messages)
   │  ← pipe SSE back to browser
   ▼
 OpenSandbox server (:8080)
@@ -42,7 +42,7 @@ OpenSandbox server (:8080)
 
 ## Key OpenSandbox Context
 
-### Lifecycle API (Python server at :8080)
+### Lifecycle API (server at :8080)
 
 Auth header: `OPEN-SANDBOX-API-KEY: <key>`
 
@@ -50,15 +50,16 @@ Auth header: `OPEN-SANDBOX-API-KEY: <key>`
 |------|--------------|-------|
 | Create sandbox | `POST /v1/sandboxes` | Returns 202, sandbox starts async |
 | Poll status | `GET /v1/sandboxes/:id` | Poll until `status.state == "Running"` |
-| Get proxy URL | `GET /v1/sandboxes/:id/endpoints/3000` | Returns `{endpoint: "host/path", headers: {...}}` |
 | Delete sandbox | `DELETE /v1/sandboxes/:id` | 204, async teardown |
 
-Create request body (minimum):
+Create request body:
 ```json
 {
-  "image": "opensandbox/claude-agent-server:latest",
+  "image": {"uri": "opensandbox/claude-agent-server:latest"},
   "entrypoint": ["/entrypoint.sh"],
   "timeout": 3600,
+  "resourceLimits": {"cpu": "500m", "memory": "512Mi"},
+  "platform": {"os": "linux", "arch": "amd64"},
   "env": {
     "ANTHROPIC_API_KEY": "<key>",
     "PORT": "3000"
@@ -66,16 +67,30 @@ Create request body (minimum):
 }
 ```
 
+`platform` is optional — omit to let the server decide. The backend uses a native `net/http` client (no SDK).
+
+### Proxy URL construction
+
+After the sandbox reaches `Running`, the proxy base URL is constructed directly (no endpoint-resolution call needed):
+
+```
+proxyBaseURL = {serverURL}/sandboxes/{sandboxID}/proxy/3000
+```
+
+Proxy requests use `Authorization: Bearer <apiKey>`.
+
+### Health check
+
+Before marking the conversation `Running`, the backend polls `GET {proxyBaseURL}/health` until the agent server returns `{"healthy": true}` (2s interval, 60s timeout).
+
 ### claude-agent-server API (proxied via OpenSandbox, port 3000)
 
-All requests go through: `http://localhost:8080/sandboxes/:sandboxId/proxy/3000/...`
+All requests go through: `{serverURL}/sandboxes/:sandboxId/proxy/3000/...`
 
 | Call | Method + Path | Notes |
 |------|--------------|-------|
 | Create session + send prompt | `POST /sessions` | Body: `{prompt, stream:true}` → SSE |
 | Send follow-up message | `POST /sessions/:sid/messages` | Body: `{prompt, stream:true}` → SSE |
-| List sessions | `GET /sessions` | — |
-| Abort | `POST /sessions/:sid/abort` | — |
 
 **SSE events emitted** (stream protocol):
 ```
@@ -89,23 +104,11 @@ event: session.completed  → terminal event
 event: error              → {message, code}
 ```
 
-### Go SDK
-
-Module: `github.com/alibaba/OpenSandbox/sdks/sandbox/go`  
-Local path: `../Opensandbox/sdks/sandbox/go` (use `replace` in go.mod)
-
-Key types/functions:
-```go
-opensandbox.CreateSandbox(ctx, connectionConfig, SandboxCreateOptions{...})
-opensandbox.ConnectionConfig{Domain: "localhost:8080", APIKey: "..."}
-sandbox.GetEndpoint(ctx, 3000)  // returns Endpoint{endpoint, headers}
-sandbox.Info()                  // returns SandboxInfo{Status: {State: "Running"}}
-```
-
 ## API Contract (Frontend ↔ Backend)
 
 ```
 POST   /api/conversations
+  body: { "env": { "KEY": "val" } }  (optional — extra env vars merged into sandbox)
   → 201 { id: string }
 
 POST   /api/conversations/:id/messages
@@ -113,7 +116,7 @@ POST   /api/conversations/:id/messages
   → 200 text/event-stream  (proxied verbatim from claude-agent-server)
 
 GET    /api/conversations/:id
-  → 200 { id, sandboxState: "provisioning"|"running"|"error", agentSessionId? }
+  → 200 { id, sandboxState: "provisioning"|"running"|"error", sandboxId?, agentSessionId? }
 
 DELETE /api/conversations/:id
   → 204  (tears down sandbox)
@@ -122,23 +125,38 @@ GET    /health
   → 200 { status: "ok" }
 ```
 
-## Environment Variables
+## Configuration
 
-### Backend
-```
-OPENSANDBOX_SERVER_URL=http://localhost:8080
-OPENSANDBOX_API_KEY=...
-ANTHROPIC_API_KEY=...
-SANDBOX_IMAGE=opensandbox/claude-agent-server:latest
-PORT=8081
-CORS_ORIGIN=http://localhost:5173
+The backend reads `config.yaml` (override with `-config` flag). See `backend/config.example.yaml` for the full template.
+
+### Backend config fields
+
+```yaml
+server:
+  port: "8081"
+  cors_origin: "http://localhost:5173"
+
+sandbox:
+  api_key: ...         # required
+  server_url: "http://localhost:8080"
+  image: "opensandbox/claude-agent-server:latest"
+  # platform: { os: linux, arch: amd64 }  # optional
+
+anthropic:
+  api_key: ...         # required
+  base_url: ""         # optional
+  model: ""            # optional
+  disable_experimental_betas: ""  # set to "1" to disable
+
+orangefs:
+  addr: ""             # optional
+  volume: ""           # optional
 ```
 
 ### Frontend
 ```
-VITE_API_BASE=http://localhost:8081
+VITE_API_BASE=  (leave empty — Vite dev proxy handles /api/* → :8081)
 ```
-(Or use Vite dev proxy to avoid CORS — see frontend.md)
 
 ## Verification (end-to-end)
 
@@ -146,9 +164,10 @@ VITE_API_BASE=http://localhost:8081
 2. Start backend: `cd backend && go run ./cmd/server`
 3. Start frontend: `cd frontend && npm run dev`
 4. Open `http://localhost:5173`
-5. Confirm: empty chat page, no sandbox created yet
+5. Confirm: empty chat page titled "Lucas", no sandbox created yet
 6. Type a message → send
-7. Backend log: `creating sandbox... polling... Running... proxy URL resolved... SSE pipe open`
-8. Response streams into browser
-9. Send a second message — no new sandbox created (same convId reused)
-10. `DELETE /api/conversations/:id` → sandbox removed in OpenSandbox
+7. StatusBadge shows "Starting workspace…" while sandbox provisions
+8. Backend log: `sandbox <id> created, waiting for Running state` → `waiting for agent server health` → `sandbox <id> ready`
+9. Response streams into browser
+10. Send a second message — no new sandbox created (same convId reused)
+11. `DELETE /api/conversations/:id` → sandbox removed in OpenSandbox

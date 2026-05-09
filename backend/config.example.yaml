@@ -13,14 +13,16 @@ sandbox:
   #   arch: amd64
 
 anthropic:
-  # Required
+  # Required — injected into sandbox as ANTHROPIC_API_KEY
   api_key: your-anthropic-api-key
   # Optional — leave empty to use api.anthropic.com
   base_url: ""
+  # Optional — injected as ANTHROPIC_MODEL; leave empty for server default
   model: ""
-  # Set to "1" to disable experimental betas
+  # Optional — set to "1" to disable experimental betas (CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS)
   disable_experimental_betas: ""
 
 orangefs:
+  # Optional — injected as ORANGEFS_RS_ADDR and ORANGEFS_VOLUME
   addr: ""
   volume: ""

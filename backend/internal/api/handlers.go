@@ -9,27 +9,41 @@ import (
 	"github.com/your-org/platform-backend/internal/conversation"
 )
 
+// ConversationStore manages the lifecycle of Conversation records in memory.
 type ConversationStore interface {
+	// Create initialises a new Conversation with optional extra environment variables
+	// and returns it. The caller owns the returned pointer.
 	Create(extraEnv map[string]string) *conversation.Conversation
+	// Get returns the Conversation with the given ID, or nil if it does not exist.
 	Get(id string) *conversation.Conversation
+	// Delete removes the Conversation with the given ID from the store.
 	Delete(id string)
 }
 
+// SandboxManager provisions and tears down the compute sandbox that backs a conversation.
 type SandboxManager interface {
+	// ProvisionForConversation allocates a sandbox for conv and attaches its ID to conv.
 	ProvisionForConversation(ctx context.Context, conv *conversation.Conversation) error
+	// DeleteSandbox destroys the sandbox identified by sandboxID.
 	DeleteSandbox(ctx context.Context, sandboxID string) error
 }
 
+// MessageProxy streams a prompt from the client through to the conversation's sandbox.
 type MessageProxy interface {
+	// StreamMessage forwards prompt to the sandbox associated with conv and writes
+	// the streamed response directly to w.
 	StreamMessage(ctx context.Context, conv *conversation.Conversation, prompt string, w http.ResponseWriter) error
 }
 
+// Handler wires together the store, sandbox manager, and message proxy to serve
+// the conversations REST API.
 type Handler struct {
 	store   ConversationStore
 	manager SandboxManager
 	proxy   MessageProxy
 }
 
+// NewHandler constructs a Handler from its three dependencies.
 func NewHandler(store ConversationStore, mgr SandboxManager, proxy MessageProxy) *Handler {
 	return &Handler{
 		store:   store,
@@ -38,6 +52,15 @@ func NewHandler(store ConversationStore, mgr SandboxManager, proxy MessageProxy)
 	}
 }
 
+// CreateConversation handles POST /api/conversations.
+//
+// Request body (optional JSON):
+//
+//	{ "env": { "KEY": "VALUE" } }
+//
+// Response 201 JSON:
+//
+//	{ "id": "<conversation-id>" }
 func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Env map[string]string `json:"env"`
@@ -51,6 +74,21 @@ func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": conv.ID})
 }
 
+// SendMessage handles POST /api/conversations/{id}/messages.
+//
+// Lazily provisions the conversation's sandbox on first use, then streams the
+// assistant response back to the caller. Provisioning runs under a background
+// context so that a client disconnect does not abort it.
+//
+// Request body (JSON):
+//
+//	{ "prompt": "<user message>" }
+//
+// Response: streamed assistant output (content-type set by the proxy).
+// Errors:
+//   - 400 Bad Request  – prompt missing or body unreadable
+//   - 404 Not Found    – unknown conversation ID
+//   - 502 Bad Gateway  – sandbox provisioning failed
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	conv := h.store.Get(id)
@@ -92,6 +130,19 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetConversation handles GET /api/conversations/{id}.
+//
+// Response 200 JSON:
+//
+//	{
+//	  "id":             "<conversation-id>",
+//	  "sandboxState":   "<state-string>",
+//	  "sandboxId":      "<sandbox-id>",
+//	  "agentSessionId": "<session-id>"
+//	}
+//
+// Errors:
+//   - 404 Not Found – unknown conversation ID
 func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	conv := h.store.Get(id)
@@ -110,6 +161,14 @@ func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// DeleteConversation handles DELETE /api/conversations/{id}.
+//
+// Removes the conversation from the store and asynchronously destroys its
+// sandbox. Sandbox deletion errors are logged but do not affect the response.
+//
+// Response 204 No Content on success.
+// Errors:
+//   - 404 Not Found – unknown conversation ID
 func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	conv := h.store.Get(id)
@@ -130,6 +189,11 @@ func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// Health handles GET /health.
+//
+// Response 200 JSON:
+//
+//	{ "status": "ok" }
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
