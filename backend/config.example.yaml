@@ -1,0 +1,26 @@
+server:
+  port: "8081"
+  cors_origin: "http://localhost:5173"
+
+sandbox:
+  # Required
+  api_key: your-opensandbox-api-key
+  server_url: "http://localhost:8080"
+  image: "opensandbox/claude-agent-server:latest"
+  # Optional — both os and arch must be set to take effect
+  # platform:
+  #   os: linux
+  #   arch: amd64
+
+anthropic:
+  # Required
+  api_key: your-anthropic-api-key
+  # Optional — leave empty to use api.anthropic.com
+  base_url: ""
+  model: ""
+  # Set to "1" to disable experimental betas
+  disable_experimental_betas: ""
+
+orangefs:
+  addr: ""
+  volume: ""

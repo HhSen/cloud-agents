@@ -1,0 +1,8 @@
+# Config file contains secrets — use config.example.yaml as template
+config.yaml
+
+# Environment files (legacy)
+.env
+
+# Build output
+/bin/

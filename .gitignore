@@ -1,0 +1,30 @@
+# Project reference dir
+/Opensandbox/
+
+# ── Go ──────────────────────────────────────────────
+backend/config.yaml
+backend/bin/
+backend/*.out
+backend/*.test
+backend/vendor/
+
+# ── Node / Frontend ──────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# ── OS / Editor ──────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Secrets / Local config ───────────────────────────
+*.env
+.env
+.env.local
+secrets.*
