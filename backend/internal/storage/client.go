@@ -29,7 +29,7 @@ type ConversationEntry struct {
 	ParentUUID string          `json:"parentUuid"`
 	Timestamp  string          `json:"timestamp"`
 	IsMeta     bool            `json:"isMeta"`
-	Message    json.RawMessage `json:"message"`
+	Message    json.RawMessage `json:"message" swaggertype:"object"`
 }
 
 // OFSClient retrieves task history from OrangeFS via S3.

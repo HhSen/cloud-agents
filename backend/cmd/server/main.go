@@ -1,3 +1,9 @@
+// @title           Platform Backend API
+// @version         1.0
+// @description     REST API for managing tasks and sandboxes.
+// @host            localhost:8080
+// @BasePath        /
+
 package main
 
 import (

@@ -1,0 +1,234 @@
+basePath: /
+definitions:
+  github_com_your-org_platform-backend_internal_storage.ConversationEntry:
+    properties:
+      isMeta:
+        type: boolean
+      message:
+        type: object
+      parentUuid:
+        type: string
+      timestamp:
+        type: string
+      type:
+        type: string
+      uuid:
+        type: string
+    type: object
+  internal_api.createTaskRequest:
+    properties:
+      env:
+        additionalProperties:
+          type: string
+        type: object
+      username:
+        type: string
+    type: object
+  internal_api.createTaskResponse:
+    properties:
+      id:
+        type: string
+    type: object
+  internal_api.getTaskResponse:
+    properties:
+      id:
+        type: string
+      sandbox_id:
+        type: string
+      session_id:
+        type: string
+      state:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_api.healthResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  internal_api.sendMessageRequest:
+    properties:
+      prompt:
+        type: string
+    required:
+    - prompt
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: REST API for managing tasks and sandboxes.
+  title: Platform Backend API
+  version: "1.0"
+paths:
+  /api/tasks:
+    post:
+      consumes:
+      - application/json
+      description: Create a new task with an optional username and environment variables.
+      parameters:
+      - description: Create task request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.createTaskResponse'
+        "400":
+          description: invalid request body
+          schema:
+            type: string
+        "500":
+          description: failed to create task
+          schema:
+            type: string
+      summary: Create a task
+      tags:
+      - tasks
+  /api/tasks/{id}:
+    delete:
+      description: Delete a task and its associated sandbox.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: task not found
+          schema:
+            type: string
+        "500":
+          description: failed to delete task
+          schema:
+            type: string
+      summary: Delete a task
+      tags:
+      - tasks
+    get:
+      description: Retrieve task state by ID.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.getTaskResponse'
+        "404":
+          description: task not found
+          schema:
+            type: string
+        "500":
+          description: failed to get task
+          schema:
+            type: string
+      summary: Get a task
+      tags:
+      - tasks
+  /api/tasks/{id}/history:
+    get:
+      description: Retrieve the conversation history for a task. Requires fileStore
+        to be configured.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_your-org_platform-backend_internal_storage.ConversationEntry'
+            type: array
+        "404":
+          description: task not found
+          schema:
+            type: string
+        "500":
+          description: failed to get history
+          schema:
+            type: string
+        "503":
+          description: history storage not configured
+          schema:
+            type: string
+      summary: Get task conversation history
+      tags:
+      - tasks
+  /api/tasks/{id}/messages:
+    post:
+      consumes:
+      - application/json
+      description: Lazily provisions the task sandbox on first use and streams the
+        assistant response back to the caller.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Send message request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.sendMessageRequest'
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Streamed assistant response
+          schema:
+            type: string
+        "400":
+          description: prompt is required
+          schema:
+            type: string
+        "404":
+          description: task not found
+          schema:
+            type: string
+        "500":
+          description: failed to get task
+          schema:
+            type: string
+        "502":
+          description: failed to provision sandbox
+          schema:
+            type: string
+      summary: Send a message to a task
+      tags:
+      - tasks
+  /health:
+    get:
+      description: Liveness probe — returns ok when the server is up.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.healthResponse'
+      summary: Health check
+      tags:
+      - health
+swagger: "2.0"

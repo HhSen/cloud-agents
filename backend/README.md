@@ -102,11 +102,15 @@ backend/
 │   │   └── config.go              # YAML config loader with defaults
 │   └── constants/
 │       └── constants.go
-├── docs/specs/
-│   ├── configuration.md           # Full configuration field reference
-│   ├── resource-mapping.md        # Task / Sandbox / Session lifecycle and invariants
-│   ├── redis-storage.md           # Redis data model and key operations
-│   └── ofsspec.md                 # OFS file layout for session history
+├── docs/
+│   ├── docs.go                    # generated Swagger registration (do not edit manually)
+│   ├── swagger.json               # generated OpenAPI 2.0 spec
+│   ├── swagger.yaml               # generated OpenAPI 2.0 spec (YAML)
+│   └── specs/
+│       ├── configuration.md       # Full configuration field reference
+│       ├── resource-mapping.md    # Task / Sandbox / Session lifecycle and invariants
+│       ├── redis-storage.md       # Redis data model and key operations
+│       └── ofsspec.md             # OFS file layout for session history
 ├── go.mod
 └── go.sum
 ```
@@ -114,6 +118,8 @@ backend/
 ---
 
 ## API Endpoints
+
+Interactive docs (Swagger UI) available at **`http://localhost:8081/swagger/index.html`** when the server is running.
 
 | Method | Path | Status | Description |
 |---|---|---|---|
@@ -123,6 +129,7 @@ backend/
 | `GET` | `/api/tasks/:id/history` | 200 | Get conversation history from OFS |
 | `DELETE` | `/api/tasks/:id` | 204 | Delete task and tear down sandbox |
 | `GET` | `/health` | 200 | Liveness probe → `{ "status": "ok" }` |
+| `GET` | `/swagger/*` | — | Swagger UI |
 
 ### POST /api/tasks — request body (optional)
 
@@ -329,8 +336,24 @@ curl -X DELETE http://localhost:8081/api/tasks/<id>
 
 ---
 
+## API Documentation
+
+The Swagger spec is generated from Go comment annotations by [`swag`](https://github.com/swaggo/swag). The generated files in `docs/` are committed and should be regenerated whenever handler annotations change.
+
+```bash
+# Install swag CLI (one-time)
+go install github.com/swaggo/swag/cmd/swag@latest
+
+# Regenerate from the backend root
+swag init -g cmd/server/main.go --output docs --parseDependency --parseInternal
+```
+
+General API metadata (`@title`, `@version`, `@host`, `@BasePath`) lives at the top of `cmd/server/main.go`. Per-endpoint annotations (`@Summary`, `@Param`, `@Success`, etc.) are in `internal/api/handlers.go`.
+
+---
+
 ## Adding a New Endpoint
 
-1. Add a handler method to `Handler` in `internal/api/handlers.go`
+1. Add a handler method to `Handler` in `internal/api/handlers.go` with Swagger annotations
 2. Register the route in `internal/api/router.go`
-3. Use `r.PathValue("param")` for URL parameters (Go 1.22+ stdlib mux)
+3. Run `swag init -g cmd/server/main.go --output docs --parseDependency --parseInternal` to regenerate docs

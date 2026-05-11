@@ -32,6 +32,10 @@ backend/
 │   │   └── config.go                   # YAML config loader with defaults
 │   └── constants/
 │       └── constants.go                # default Anthropic base URL and model
+├── docs/                               # generated Swagger/OpenAPI 2.0 spec (do not edit manually)
+│   ├── docs.go
+│   ├── swagger.json
+│   └── swagger.yaml
 ├── go.mod                              # module: github.com/your-org/platform-backend, go 1.22
 └── go.sum
 ```
@@ -141,6 +145,21 @@ Uses a native HTTP client (`internal/sandbox/client.go`) — no SDK.
    - All lines: forwarded verbatim
    - Flush after each line
 6. Client disconnect handled by `ctx` cancellation
+
+---
+
+## API Documentation (Swagger)
+
+Swagger UI is served at `/swagger/index.html` via `gin-swagger`. The OpenAPI 2.0 spec is generated from Go comment annotations using [`swag`](https://github.com/swaggo/swag):
+
+```bash
+swag init -g cmd/server/main.go --output docs --parseDependency --parseInternal
+```
+
+- General metadata (`@title`, `@version`, `@host`, `@BasePath`) is in `cmd/server/main.go`
+- Per-endpoint annotations are in `internal/api/handlers.go`
+- Generated output committed under `docs/` (`docs.go`, `swagger.json`, `swagger.yaml`)
+- The docs blank-import (`_ "github.com/your-org/platform-backend/docs"`) is in `internal/api/router.go`
 
 ---
 

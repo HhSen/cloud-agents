@@ -4,6 +4,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+	_ "github.com/your-org/platform-backend/docs"
 	"github.com/your-org/platform-backend/internal/sandbox"
 )
 
@@ -33,6 +36,7 @@ func NewRouter(store TaskStore, mgr SandboxManager, corsOrigin string, fileStore
 	r.GET("/api/tasks/:id/history", h.GetTaskHistory)
 	r.DELETE("/api/tasks/:id", h.DeleteTask)
 	r.GET("/health", h.Health)
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	return r
 }

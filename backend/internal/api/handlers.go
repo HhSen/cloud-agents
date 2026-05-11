@@ -59,6 +59,17 @@ func NewHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy, fileSto
 }
 
 // CreateTask handles POST /api/tasks.
+//
+// @Summary      Create a task
+// @Description  Create a new task with an optional username and environment variables.
+// @Tags         tasks
+// @Accept       json
+// @Produce      json
+// @Param        body  body      createTaskRequest   true  "Create task request"
+// @Success      201   {object}  createTaskResponse
+// @Failure      400   {string}  string  "invalid request body"
+// @Failure      500   {string}  string  "failed to create task"
+// @Router       /api/tasks [post]
 func (h *Handler) CreateTask(c *gin.Context) {
 	var body createTaskRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -80,6 +91,20 @@ func (h *Handler) CreateTask(c *gin.Context) {
 // Lazily provisions the task's sandbox on first use, then streams the
 // assistant response back to the caller. Provisioning runs under a background
 // context so that a client disconnect does not abort it.
+//
+// @Summary      Send a message to a task
+// @Description  Lazily provisions the task sandbox on first use and streams the assistant response back to the caller.
+// @Tags         tasks
+// @Accept       json
+// @Produce      plain
+// @Param        id    path      string             true  "Task ID"
+// @Param        body  body      sendMessageRequest true  "Send message request"
+// @Success      200   {string}  string             "Streamed assistant response"
+// @Failure      400   {string}  string             "prompt is required"
+// @Failure      404   {string}  string             "task not found"
+// @Failure      500   {string}  string             "failed to get task"
+// @Failure      502   {string}  string             "failed to provision sandbox"
+// @Router       /api/tasks/{id}/messages [post]
 func (h *Handler) SendMessage(c *gin.Context) {
 	id := c.Param("id")
 	t, err := h.store.Get(c.Request.Context(), id)
@@ -142,6 +167,16 @@ func (h *Handler) SendMessage(c *gin.Context) {
 }
 
 // GetTask handles GET /api/tasks/:id.
+//
+// @Summary      Get a task
+// @Description  Retrieve task state by ID.
+// @Tags         tasks
+// @Produce      json
+// @Param        id   path      string          true  "Task ID"
+// @Success      200  {object}  getTaskResponse
+// @Failure      404  {string}  string          "task not found"
+// @Failure      500  {string}  string          "failed to get task"
+// @Router       /api/tasks/{id} [get]
 func (h *Handler) GetTask(c *gin.Context) {
 	id := c.Param("id")
 	t, err := h.store.Get(c.Request.Context(), id)
@@ -166,6 +201,15 @@ func (h *Handler) GetTask(c *gin.Context) {
 }
 
 // DeleteTask handles DELETE /api/tasks/:id.
+//
+// @Summary      Delete a task
+// @Description  Delete a task and its associated sandbox.
+// @Tags         tasks
+// @Param        id   path  string  true  "Task ID"
+// @Success      204
+// @Failure      404  {string}  string  "task not found"
+// @Failure      500  {string}  string  "failed to delete task"
+// @Router       /api/tasks/{id} [delete]
 func (h *Handler) DeleteTask(c *gin.Context) {
 	id := c.Param("id")
 	t, err := h.store.Get(c.Request.Context(), id)
@@ -197,6 +241,17 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 }
 
 // GetTaskHistory handles GET /api/tasks/:id/history.
+//
+// @Summary      Get task conversation history
+// @Description  Retrieve the conversation history for a task. Requires fileStore to be configured.
+// @Tags         tasks
+// @Produce      json
+// @Param        id   path      string                     true  "Task ID"
+// @Success      200  {array}   storage.ConversationEntry
+// @Failure      404  {string}  string                     "task not found"
+// @Failure      500  {string}  string                     "failed to get history"
+// @Failure      503  {string}  string                     "history storage not configured"
+// @Router       /api/tasks/{id}/history [get]
 func (h *Handler) GetTaskHistory(c *gin.Context) {
 	id := c.Param("id")
 	t, err := h.store.Get(c.Request.Context(), id)
@@ -239,6 +294,13 @@ func (h *Handler) GetTaskHistory(c *gin.Context) {
 }
 
 // Health handles GET /health.
+//
+// @Summary      Health check
+// @Description  Liveness probe — returns ok when the server is up.
+// @Tags         health
+// @Produce      json
+// @Success      200  {object}  healthResponse
+// @Router       /health [get]
 func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, healthResponse{Status: "ok"})
 }
