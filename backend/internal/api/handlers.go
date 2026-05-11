@@ -7,24 +7,25 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/storage"
+	"github.com/your-org/platform-backend/internal/task"
 )
 
-// ConversationStore manages the lifecycle of Conversation records in memory.
-type ConversationStore interface {
-	// Create initialises a new Conversation with optional extra environment variables
-	// and returns it. The caller owns the returned pointer.
-	Create(extraEnv map[string]string) *conversation.Conversation
-	// Get returns the Conversation with the given ID, or nil if it does not exist.
-	Get(id string) *conversation.Conversation
-	// Delete removes the Conversation with the given ID from the store.
+// TaskStore manages the lifecycle of Task records in memory.
+type TaskStore interface {
+	// Create initialises a new Task owned by username with optional extra environment
+	// variables and returns it. The caller owns the returned pointer.
+	Create(username string, extraEnv map[string]string) *task.Task
+	// Get returns the Task with the given ID, or nil if it does not exist.
+	Get(id string) *task.Task
+	// Delete removes the Task with the given ID from the store.
 	Delete(id string)
 }
 
-// SandboxManager provisions and tears down the compute sandbox that backs a conversation.
+// SandboxManager provisions and tears down the compute sandbox that backs a task.
 type SandboxManager interface {
-	// ProvisionForConversation allocates a sandbox for conv and attaches its ID to conv.
-	ProvisionForConversation(ctx context.Context, conv *conversation.Conversation) error
+	// ProvisionForTask allocates a sandbox for t and attaches its ID to t.
+	ProvisionForTask(ctx context.Context, t *task.Task) error
 	// DeleteSandbox destroys the sandbox identified by sandboxID.
 	DeleteSandbox(ctx context.Context, sandboxID string) error
 	// IsSandboxAlive reports whether sandboxID is still in Running state.
@@ -32,53 +33,62 @@ type SandboxManager interface {
 	IsSandboxAlive(ctx context.Context, sandboxID string) (bool, error)
 }
 
-// MessageProxy streams a prompt from the client through to the conversation's sandbox.
+// FileStore retrieves task history from OFS-backed file storage.
+type FileStore interface {
+	ListHistory(ctx context.Context, username, taskID string) ([]string, error)
+	GetHistory(ctx context.Context, key string) ([]storage.ConversationEntry, error)
+	GetSessionMeta(ctx context.Context, username, taskID string) (*storage.SessionMeta, error)
+}
+
+// MessageProxy streams a prompt from the client through to the task's sandbox.
 type MessageProxy interface {
-	// StreamMessage forwards prompt to the sandbox associated with conv and writes
+	// StreamMessage forwards prompt to the sandbox associated with t and writes
 	// the streamed response directly to w.
-	StreamMessage(ctx context.Context, conv *conversation.Conversation, prompt string, w http.ResponseWriter) error
+	StreamMessage(ctx context.Context, t *task.Task, prompt string, w http.ResponseWriter) error
 }
 
-// Handler wires together the store, sandbox manager, and message proxy to serve
-// the conversations REST API.
+// Handler wires together the store, sandbox manager, message proxy, and file store
+// to serve the tasks REST API.
 type Handler struct {
-	store   ConversationStore
-	manager SandboxManager
-	proxy   MessageProxy
+	store     TaskStore
+	manager   SandboxManager
+	proxy     MessageProxy
+	fileStore FileStore
 }
 
-// NewHandler constructs a Handler from its three dependencies.
-func NewHandler(store ConversationStore, mgr SandboxManager, proxy MessageProxy) *Handler {
+// NewHandler constructs a Handler from its dependencies.
+func NewHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy, fileStore FileStore) *Handler {
 	return &Handler{
-		store:   store,
-		manager: mgr,
-		proxy:   proxy,
+		store:     store,
+		manager:   mgr,
+		proxy:     proxy,
+		fileStore: fileStore,
 	}
 }
 
-// CreateConversation handles POST /api/conversations.
+// CreateTask handles POST /api/tasks.
 //
 // Request body (optional JSON):
 //
-//	{ "env": { "KEY": "VALUE" } }
+//	{ "username": "alice", "env": { "KEY": "VALUE" } }
 //
 // Response 201 JSON:
 //
-//	{ "id": "<conversation-id>" }
-func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request) {
-	var body createConversationRequest
+//	{ "id": "<task-id>" }
+func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	var body createTaskRequest
 	// body is optional — ignore decode errors
 	json.NewDecoder(r.Body).Decode(&body)
 
-	conv := h.store.Create(body.Env)
+	t := h.store.Create(body.Username, body.Env)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(createConversationResponse{ID: conv.ID})
+	json.NewEncoder(w).Encode(createTaskResponse{ID: t.ID})
 }
 
-// SendMessage handles POST /api/conversations/{id}/messages.
+// SendMessage handles POST /api/tasks/{id}/messages.
 //
-// Lazily provisions the conversation's sandbox on first use, then streams the
+// Lazily provisions the task's sandbox on first use, then streams the
 // assistant response back to the caller. Provisioning runs under a background
 // context so that a client disconnect does not abort it.
 //
@@ -89,13 +99,13 @@ func (h *Handler) CreateConversation(w http.ResponseWriter, r *http.Request) {
 // Response: streamed assistant output (content-type set by the proxy).
 // Errors:
 //   - 400 Bad Request  – prompt missing or body unreadable
-//   - 404 Not Found    – unknown conversation ID
+//   - 404 Not Found    – unknown task ID
 //   - 502 Bad Gateway  – sandbox provisioning failed
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	conv := h.store.Get(id)
-	if conv == nil {
-		http.Error(w, "conversation not found", http.StatusNotFound)
+	t := h.store.Get(id)
+	if t == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
 
@@ -107,96 +117,96 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Sandboxes expire silently via TTL. ResetIfExpired checks liveness under the
 	// provisioning lock so a concurrent re-provision cannot be stomped by a racing reset.
-	if err := conv.ResetIfExpired(func(sandboxID string) (bool, error) {
+	if err := t.ResetIfExpired(func(sandboxID string) (bool, error) {
 		aliveCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		alive, err := h.manager.IsSandboxAlive(aliveCtx, sandboxID)
 		if err != nil {
-			log.Printf("sandbox status check failed for conv %s sandbox %s: %v", id, sandboxID, err)
+			log.Printf("sandbox status check failed for task %s sandbox %s: %v", id, sandboxID, err)
 			return true, err // treat check error as alive — proxy will surface real errors
 		}
 		if !alive {
-			log.Printf("sandbox %s expired for conv %s, re-provisioning", sandboxID, id)
+			log.Printf("sandbox %s expired for task %s, re-provisioning", sandboxID, id)
 		}
 		return alive, nil
 	}); err != nil {
-		// Liveness check failed transiently — proceed and let the proxy surface any error.
-		log.Printf("sandbox liveness check error for conv %s, proceeding: %v", id, err)
+		log.Printf("sandbox liveness check error for task %s, proceeding: %v", id, err)
 	}
 
-	// Mark provisioning before entering the lock to give callers visibility.
-	if conv.GetState() == conversation.StateNew {
-		conv.SetProvisioning()
+	if t.GetState() == task.StateNew {
+		t.SetProvisioning()
 	}
 
 	// Use background context so provisioning survives client disconnects.
 	provisionCtx := context.Background()
-	err := conv.EnsureProvisioned(func() error {
-		return h.manager.ProvisionForConversation(provisionCtx, conv)
+	err := t.EnsureProvisioned(func() error {
+		return h.manager.ProvisionForTask(provisionCtx, t)
 	})
 	if err != nil {
-		conv.SetError()
-		log.Printf("provision failed for conv %s: %v", id, err)
+		t.SetError()
+		log.Printf("provision failed for task %s: %v", id, err)
 		http.Error(w, "failed to provision sandbox", http.StatusBadGateway)
 		return
 	}
 
-	if err := h.proxy.StreamMessage(r.Context(), conv, body.Prompt, w); err != nil {
+	if err := h.proxy.StreamMessage(r.Context(), t, body.Prompt, w); err != nil {
 		if r.Context().Err() != nil {
 			return // client disconnected
 		}
-		log.Printf("stream error for conv %s: %v", id, err)
+		log.Printf("stream error for task %s: %v", id, err)
 	}
 }
 
-// GetConversation handles GET /api/conversations/{id}.
+// GetTask handles GET /api/tasks/{id}.
 //
 // Response 200 JSON:
 //
 //	{
-//	  "id":               "<conversation-id>",
+//	  "id":               "<task-id>",
+//	  "username":         "<username>",
 //	  "sandbox_state":    "<state-string>",
 //	  "sandbox_id":       "<sandbox-id>",
 //	  "agent_session_id": "<session-id>"
 //	}
 //
 // Errors:
-//   - 404 Not Found – unknown conversation ID
-func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
+//   - 404 Not Found – unknown task ID
+func (h *Handler) GetTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	conv := h.store.Get(id)
-	if conv == nil {
-		http.Error(w, "conversation not found", http.StatusNotFound)
+	t := h.store.Get(id)
+	if t == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
 
-	_, sandboxID, agentSessionID, state := conv.Info()
+	_, sandboxID, agentSessionID, state := t.Info()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(getConversationResponse{
+	json.NewEncoder(w).Encode(getTaskResponse{
 		ID:             id,
+		Username:       t.Username,
 		SandboxState:   state.String(),
 		SandboxID:      sandboxID,
 		AgentSessionID: agentSessionID,
 	})
 }
 
-// DeleteConversation handles DELETE /api/conversations/{id}.
+// DeleteTask handles DELETE /api/tasks/{id}.
 //
-// Removes the conversation from the store and asynchronously destroys its
-// sandbox. Sandbox deletion errors are logged but do not affect the response.
+// Removes the task from the store and asynchronously destroys its sandbox.
+// Sandbox deletion errors are logged but do not affect the response.
 //
 // Response 204 No Content on success.
 // Errors:
-//   - 404 Not Found – unknown conversation ID
-func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request) {
+//   - 404 Not Found – unknown task ID
+func (h *Handler) DeleteTask(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	conv := h.store.Get(id)
-	if conv == nil {
-		http.Error(w, "conversation not found", http.StatusNotFound)
+	t := h.store.Get(id)
+	if t == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
 
-	sandboxID := conv.GetSandboxID()
+	sandboxID := t.GetSandboxID()
 	h.store.Delete(id)
 
 	if sandboxID != "" {
@@ -206,6 +216,53 @@ func (h *Handler) DeleteConversation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetTaskHistory handles GET /api/tasks/{id}/history.
+//
+// Returns the full conversation history stored in OFS for the task.
+//
+// Response 200 JSON: array of ConversationEntry objects (may be empty if no
+// history has been written yet).
+// Errors:
+//   - 404 Not Found           – unknown task ID
+//   - 503 Service Unavailable – file storage not configured
+//   - 500 Internal Error      – storage read failure
+func (h *Handler) GetTaskHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	t := h.store.Get(id)
+	if t == nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	if h.fileStore == nil {
+		http.Error(w, "history storage not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	keys, err := h.fileStore.ListHistory(r.Context(), t.Username, id)
+	if err != nil {
+		log.Printf("list history for task %s: %v", id, err)
+		http.Error(w, "failed to list history", http.StatusInternalServerError)
+		return
+	}
+
+	entries := make([]storage.ConversationEntry, 0)
+	if len(keys) > 0 {
+		entries, err = h.fileStore.GetHistory(r.Context(), keys[0])
+		if err != nil {
+			log.Printf("get history for task %s: %v", id, err)
+			http.Error(w, "failed to get history", http.StatusInternalServerError)
+			return
+		}
+		if entries == nil {
+			entries = make([]storage.ConversationEntry, 0)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(entries)
 }
 
 // Health handles GET /health.

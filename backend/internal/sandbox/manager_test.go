@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/task"
 )
 
 // mockLC is a test double for the lifecycleClient interface.
@@ -81,9 +81,9 @@ func newTestManager(lc lifecycleClient, serverURL, apiKey string, baseEnv map[st
 	}
 }
 
-func sandboxConv(extraEnv map[string]string) *conversation.Conversation {
-	s := conversation.NewStore()
-	return s.Create(extraEnv)
+func sandboxTask(username string, extraEnv map[string]string) *task.Task {
+	s := task.NewStore()
+	return s.Create(username, extraEnv)
 }
 
 func TestProvision_MergesEnv(t *testing.T) {
@@ -92,9 +92,9 @@ func TestProvision_MergesEnv(t *testing.T) {
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://srv", "key", map[string]string{"FOO": "base", "STATIC": "yes"})
-	conv := sandboxConv(map[string]string{"FOO": "override", "BAR": "new"})
+	tsk := sandboxTask("",map[string]string{"FOO": "override", "BAR": "new"})
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -109,20 +109,40 @@ func TestProvision_MergesEnv(t *testing.T) {
 	}
 }
 
+func TestProvision_InjectsEnvVars(t *testing.T) {
+	lc := &mockLC{
+		createInfo:   &SandboxInfo{ID: "sb1"},
+		getResponses: []SandboxState{StateRunning},
+	}
+	mgr := newTestManager(lc, "http://srv", "k", nil)
+	tsk := sandboxTask("alice", nil)
+
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := lc.capturedReq.Env["USERNAME"]; got != "alice" {
+		t.Errorf("USERNAME = %q, want %q", got, "alice")
+	}
+	if got := lc.capturedReq.Env["TASK_ID"]; got != tsk.ID {
+		t.Errorf("TASK_ID = %q, want %q", got, tsk.ID)
+	}
+}
+
 func TestProvision_SetsRunning(t *testing.T) {
 	lc := &mockLC{
 		createInfo:   &SandboxInfo{ID: "sb42"},
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://myserver", "k", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if conv.GetState() != conversation.StateRunning {
-		t.Fatalf("expected StateRunning, got %v", conv.GetState())
+	if tsk.GetState() != task.StateRunning {
+		t.Fatalf("expected StateRunning, got %v", tsk.GetState())
 	}
 }
 
@@ -132,14 +152,14 @@ func TestProvision_ProxyURL(t *testing.T) {
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://myserver", "k", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	wantURL := "http://myserver/sandboxes/sb99/proxy/3000"
-	gotURL, _ := conv.GetProxyInfo()
+	gotURL, _ := tsk.GetProxyInfo()
 	if gotURL != wantURL {
 		t.Errorf("proxy URL = %q, want %q", gotURL, wantURL)
 	}
@@ -151,13 +171,13 @@ func TestProvision_AuthHeader(t *testing.T) {
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://srv", "myapikey", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, headers := conv.GetProxyInfo()
+	_, headers := tsk.GetProxyInfo()
 	if headers["Authorization"] != "Bearer myapikey" {
 		t.Errorf("expected Authorization header, got %v", headers)
 	}
@@ -169,13 +189,13 @@ func TestProvision_NoAuthHeader(t *testing.T) {
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://srv", "", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, headers := conv.GetProxyInfo()
+	_, headers := tsk.GetProxyInfo()
 	if _, ok := headers["Authorization"]; ok {
 		t.Error("expected no Authorization header when apiKey is empty")
 	}
@@ -189,9 +209,9 @@ func TestProvision_TerminalStateFails(t *testing.T) {
 				getResponses: []SandboxState{state},
 			}
 			mgr := newTestManager(lc, "http://srv", "k", nil)
-			conv := sandboxConv(nil)
+			tsk := sandboxTask("",nil)
 
-			err := mgr.ProvisionForConversation(context.Background(), conv)
+			err := mgr.ProvisionForTask(context.Background(), tsk)
 			if err == nil {
 				t.Fatal("expected error for terminal state, got nil")
 			}
@@ -205,12 +225,12 @@ func TestProvision_TimeoutFails(t *testing.T) {
 		getResponses: []SandboxState{StatePending},
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
 
-	err := mgr.ProvisionForConversation(ctx, conv)
+	err := mgr.ProvisionForTask(ctx, tsk)
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -221,9 +241,9 @@ func TestProvision_CreateError(t *testing.T) {
 		createErr: errors.New("quota exceeded"),
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	err := mgr.ProvisionForConversation(context.Background(), conv)
+	err := mgr.ProvisionForTask(context.Background(), tsk)
 	if err == nil {
 		t.Fatal("expected error from CreateSandbox, got nil")
 	}
@@ -248,9 +268,9 @@ func TestProvision_Platform(t *testing.T) {
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
 	mgr.platform = &PlatformSpec{OS: "linux", Arch: "amd64"}
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -268,9 +288,9 @@ func TestProvision_NoPlatform(t *testing.T) {
 		getResponses: []SandboxState{StateRunning},
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -286,13 +306,13 @@ func TestProvision_HealthCheckError(t *testing.T) {
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
 	mgr.healthChecker = &errHealthChecker{err: errors.New("server never came up")}
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	err := mgr.ProvisionForConversation(context.Background(), conv)
+	err := mgr.ProvisionForTask(context.Background(), tsk)
 	if err == nil {
 		t.Fatal("expected error when health check fails, got nil")
 	}
-	if conv.GetState() == conversation.StateRunning {
+	if tsk.GetState() == task.StateRunning {
 		t.Error("conversation should not be Running when health check fails")
 	}
 }
@@ -449,14 +469,14 @@ func TestProvision_AgentPort(t *testing.T) {
 	}
 	mgr := newTestManager(lc, "http://srv", "k", nil)
 	mgr.agentPort = 8080
-	conv := sandboxConv(nil)
+	tsk := sandboxTask("",nil)
 
-	if err := mgr.ProvisionForConversation(context.Background(), conv); err != nil {
+	if err := mgr.ProvisionForTask(context.Background(), tsk); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	wantURL := "http://srv/sandboxes/sbport/proxy/8080"
-	gotURL, _ := conv.GetProxyInfo()
+	gotURL, _ := tsk.GetProxyInfo()
 	if gotURL != wantURL {
 		t.Errorf("proxy URL = %q, want %q", gotURL, wantURL)
 	}

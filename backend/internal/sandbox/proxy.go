@@ -11,8 +11,29 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/task"
 )
+
+// agentQueryOptions mirrors the QueryOptions schema accepted by claude-agent-server.
+type agentQueryOptions struct {
+	CWD                  string   `json:"cwd,omitempty"`
+	Model                string   `json:"model,omitempty"`
+	PermissionMode       string   `json:"permissionMode,omitempty"`
+	SystemPrompt         string   `json:"systemPrompt,omitempty"`
+	AppendSystemPrompt   string   `json:"appendSystemPrompt,omitempty"`
+	AllowedTools         []string `json:"allowedTools,omitempty"`
+	DisallowedTools      []string `json:"disallowedTools,omitempty"`
+	AdditionalDirectories []string `json:"additionalDirectories,omitempty"`
+	MaxTurns             int      `json:"maxTurns,omitempty"`
+	EnableFileCheckpointing bool  `json:"enableFileCheckpointing,omitempty"`
+}
+
+// agentRequest is the body for both POST /sessions and POST /sessions/:id/messages.
+type agentRequest struct {
+	Prompt  string            `json:"prompt"`
+	Stream  bool              `json:"stream"`
+	Options agentQueryOptions `json:"options,omitempty"`
+}
 
 type Proxy struct {
 	client *http.Client
@@ -25,9 +46,9 @@ func NewProxy() *Proxy {
 // StreamMessage forwards a prompt to the claude-agent-server and pipes the SSE
 // response back to w. It extracts the agentSessionID from the session.init event
 // on the first message.
-func (p *Proxy) StreamMessage(ctx context.Context, conv *conversation.Conversation, prompt string, w http.ResponseWriter) error {
-	proxyBaseURL, proxyHeaders := conv.GetProxyInfo()
-	agentSessionID := conv.GetAgentSessionID()
+func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, w http.ResponseWriter) error {
+	proxyBaseURL, proxyHeaders := t.GetProxyInfo()
+	agentSessionID := t.GetAgentSessionID()
 
 	var upstreamURL string
 	if agentSessionID == "" {
@@ -36,9 +57,10 @@ func (p *Proxy) StreamMessage(ctx context.Context, conv *conversation.Conversati
 		upstreamURL = proxyBaseURL + "/sessions/" + agentSessionID + "/messages"
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"prompt": prompt,
-		"stream": true,
+	body, err := json.Marshal(agentRequest{
+		Prompt:  prompt,
+		Stream:  true,
+		Options: agentQueryOptions{CWD: fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)},
 	})
 	if err != nil {
 		return fmt.Errorf("marshal body: %w", err)
@@ -84,7 +106,6 @@ func (p *Proxy) StreamMessage(ctx context.Context, conv *conversation.Conversati
 
 		switch {
 		case line == "":
-			// Event separator — reset current event name and forward blank line.
 			currentEvent = ""
 			fmt.Fprint(w, "\n")
 		case strings.HasPrefix(line, "event:"):
@@ -96,8 +117,8 @@ func (p *Proxy) StreamMessage(ctx context.Context, conv *conversation.Conversati
 				SessionID string `json:"sessionId"`
 			}
 			if json.Unmarshal([]byte(dataStr), &payload) == nil && payload.SessionID != "" {
-				conv.SetAgentSessionID(payload.SessionID)
-				log.Printf("conv %s: agent session ID = %s", conv.ID, payload.SessionID)
+				t.SetAgentSessionID(payload.SessionID)
+				log.Printf("task %s: agent session ID = %s", t.ID, payload.SessionID)
 			}
 			fmt.Fprintf(w, "%s\n", line)
 		default:

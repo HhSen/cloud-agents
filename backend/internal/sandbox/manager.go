@@ -10,9 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/task"
 )
-
 
 // DefaultAgentPort is the port the claude-agent-server listens on inside the sandbox.
 // It must match the PORT env var passed to the container.
@@ -53,16 +52,20 @@ func NewManager(serverURL, apiKey string, baseEnv map[string]string, image strin
 	}
 }
 
-// ProvisionForConversation creates a sandbox and waits for it to be Running.
-// It merges the manager's static baseEnv with per-conversation env vars from conv.
-func (m *Manager) ProvisionForConversation(ctx context.Context, conv *conversation.Conversation) error {
+// ProvisionForTask creates a sandbox and waits for it to be Running.
+// It merges the manager's static baseEnv with per-task env vars from t,
+// then injects SANDBOX_USER and TASK_ID so the entrypoint can set the CWD
+// to /workspace/{username}/{task_id}/ and key OFS storage correctly.
+func (m *Manager) ProvisionForTask(ctx context.Context, t *task.Task) error {
 	env := make(map[string]string, len(m.baseEnv))
 	for k, v := range m.baseEnv {
 		env[k] = v
 	}
-	for k, v := range conv.ExtraEnv() {
+	for k, v := range t.ExtraEnv() {
 		env[k] = v
 	}
+	env["USERNAME"] = t.Username
+	env["TASK_ID"] = t.ID
 
 	timeout := 3600
 	info, err := m.lc.CreateSandbox(ctx, CreateSandboxRequest{
@@ -78,7 +81,7 @@ func (m *Manager) ProvisionForConversation(ctx context.Context, conv *conversati
 	}
 
 	sandboxID := info.ID
-	log.Printf("sandbox %s created, waiting for Running state", sandboxID)
+	log.Printf("sandbox %s created for task %s, waiting for Running state", sandboxID, t.ID)
 
 	pollCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -120,7 +123,7 @@ func (m *Manager) ProvisionForConversation(ctx context.Context, conv *conversati
 		return fmt.Errorf("sandbox %s agent server not ready: %w", sandboxID, err)
 	}
 
-	conv.SetRunning(sandboxID, proxyBaseURL, proxyHeaders)
+	t.SetRunning(sandboxID, proxyBaseURL, proxyHeaders)
 	log.Printf("sandbox %s ready — proxy URL: %s", sandboxID, proxyBaseURL)
 	return nil
 }
@@ -144,8 +147,7 @@ func (m *Manager) IsSandboxAlive(ctx context.Context, sandboxID string) (bool, e
 }
 
 // httpHealthChecker polls GET {proxyBaseURL}/health until the claude-agent-server
-// reports healthy. The container may be Running while the server process is still
-// starting, so this check is required before sending any sessions.
+// reports healthy.
 type httpHealthChecker struct {
 	client *http.Client
 }
@@ -171,7 +173,7 @@ func (h *httpHealthChecker) WaitForHealth(ctx context.Context, proxyBaseURL stri
 		if err != nil {
 			var statusErr *httpStatusError
 			if errors.As(err, &statusErr) && (statusErr.code == http.StatusUnauthorized || statusErr.code == http.StatusForbidden) {
-				return err // auth errors won't resolve on retry
+				return err
 			}
 			log.Printf("agent server health check error (retrying): %v", err)
 		} else if healthy {

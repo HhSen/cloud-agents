@@ -9,17 +9,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/task"
 )
 
-func proxyConv(baseURL string, headers map[string]string, sessionID string) *conversation.Conversation {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	conv.SetRunning("sb1", baseURL, headers)
+func proxyTask(baseURL string, headers map[string]string, sessionID string) *task.Task {
+	s := task.NewStore()
+	t := s.Create("", nil)
+	t.SetRunning("sb1", baseURL, headers)
 	if sessionID != "" {
-		conv.SetAgentSessionID(sessionID)
+		t.SetAgentSessionID(sessionID)
 	}
-	return conv
+	return t
 }
 
 func TestStreamMessage_NewSession(t *testing.T) {
@@ -33,19 +33,19 @@ func TestStreamMessage_NewSession(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "")
+	tsk := proxyTask(upstream.URL, nil, "")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	if err := p.StreamMessage(context.Background(), conv, "hello", rw); err != nil {
+	if err := p.StreamMessage(context.Background(), tsk, "hello", rw); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if capturedPath != "/sessions" {
 		t.Errorf("expected path /sessions, got %q", capturedPath)
 	}
-	if conv.GetAgentSessionID() != "abc123" {
-		t.Errorf("expected agentSessionID=abc123, got %q", conv.GetAgentSessionID())
+	if tsk.GetAgentSessionID() != "abc123" {
+		t.Errorf("expected agentSessionID=abc123, got %q", tsk.GetAgentSessionID())
 	}
 	body := rw.Body.String()
 	if !strings.Contains(body, "session.init") {
@@ -61,11 +61,11 @@ func TestStreamMessage_ExistingSession(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "existing-session")
+	tsk := proxyTask(upstream.URL, nil, "existing-session")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), conv, "hi", rw)
+	p.StreamMessage(context.Background(), tsk, "hi", rw)
 
 	want := "/sessions/existing-session/messages"
 	if capturedPath != want {
@@ -79,11 +79,11 @@ func TestStreamMessage_Upstream4xx(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "")
+	tsk := proxyTask(upstream.URL, nil, "")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	err := p.StreamMessage(context.Background(), conv, "x", rw)
+	err := p.StreamMessage(context.Background(), tsk, "x", rw)
 	if err == nil {
 		t.Fatal("expected error for 4xx response, got nil")
 	}
@@ -96,11 +96,11 @@ func TestStreamMessage_Upstream5xx(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "")
+	tsk := proxyTask(upstream.URL, nil, "")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	err := p.StreamMessage(context.Background(), conv, "x", rw)
+	err := p.StreamMessage(context.Background(), tsk, "x", rw)
 	if err == nil {
 		t.Fatal("expected error for 5xx response, got nil")
 	}
@@ -131,7 +131,7 @@ func TestStreamMessage_ContextCancel(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "")
+	tsk := proxyTask(upstream.URL, nil, "")
 	p := NewProxy()
 
 	headerWritten := make(chan struct{})
@@ -145,7 +145,7 @@ func TestStreamMessage_ContextCancel(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- p.StreamMessage(ctx, conv, "x", rw)
+		done <- p.StreamMessage(ctx, tsk, "x", rw)
 	}()
 
 	// Wait until StreamMessage has written SSE headers to rw — this guarantees
@@ -168,11 +168,11 @@ func TestStreamMessage_Headers(t *testing.T) {
 	defer upstream.Close()
 
 	headers := map[string]string{"Authorization": "Bearer mytoken"}
-	conv := proxyConv(upstream.URL, headers, "")
+	tsk := proxyTask(upstream.URL, headers, "")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), conv, "x", rw)
+	p.StreamMessage(context.Background(), tsk, "x", rw)
 
 	if capturedAuth != "Bearer mytoken" {
 		t.Errorf("expected Authorization: Bearer mytoken, got %q", capturedAuth)
@@ -185,11 +185,11 @@ func TestStreamMessage_SSEResponseHeaders(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	conv := proxyConv(upstream.URL, nil, "")
+	tsk := proxyTask(upstream.URL, nil, "")
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), conv, "x", rw)
+	p.StreamMessage(context.Background(), tsk, "x", rw)
 
 	checks := map[string]string{
 		"Content-Type":    "text/event-stream",

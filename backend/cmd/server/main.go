@@ -6,8 +6,9 @@ import (
 	"net/http"
 
 	"github.com/your-org/platform-backend/internal/api"
-	"github.com/your-org/platform-backend/internal/conversation"
 	"github.com/your-org/platform-backend/internal/sandbox"
+	"github.com/your-org/platform-backend/internal/storage"
+	"github.com/your-org/platform-backend/internal/task"
 	"github.com/your-org/platform-backend/pkg/config"
 )
 
@@ -29,6 +30,7 @@ func main() {
 		"ANTHROPIC_MODEL":                        cfg.Anthropic.Model,
 		"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": cfg.Anthropic.DisableExperimentalBetas,
 		"ORANGEFS_RS_ADDR":                       cfg.OrangeFS.Addr,
+		"ORANGEFS_TOKEN":                         cfg.OrangeFS.Token,
 		"ORANGEFS_VOLUME":                        cfg.OrangeFS.Volume,
 	} {
 		if v != "" {
@@ -41,9 +43,19 @@ func main() {
 		platform = &sandbox.PlatformSpec{OS: p.OS, Arch: p.Arch}
 	}
 
-	store := conversation.NewStore()
+	var ofsClient storage.OFSClient
+	if cfg.OrangeFS.Endpoint != "" {
+		c, err := storage.New(cfg.OrangeFS.Endpoint, cfg.OrangeFS.Volume, cfg.OrangeFS.AccessKey, cfg.OrangeFS.SecretKey)
+		if err != nil {
+			log.Fatalf("creating OFS client: %v", err)
+		}
+		ofsClient = c
+		log.Printf("OFS client configured: endpoint=%s volume=%s", cfg.OrangeFS.Endpoint, cfg.OrangeFS.Volume)
+	}
+
+	store := task.NewStore()
 	mgr := sandbox.NewManager(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey, baseEnv, cfg.Sandbox.Image, platform)
-	router := api.NewRouter(store, mgr, cfg.Server.CORSOrigin)
+	router := api.NewRouter(store, mgr, cfg.Server.CORSOrigin, ofsClient)
 
 	log.Printf("listening on :%s", cfg.Server.Port)
 	if err := http.ListenAndServe(":"+cfg.Server.Port, router); err != nil {

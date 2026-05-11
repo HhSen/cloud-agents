@@ -7,7 +7,7 @@ import (
 )
 
 func TestCORS_Preflight(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com")
+	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com", nil)
 
 	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
 	rw := httptest.NewRecorder()
@@ -25,7 +25,7 @@ func TestCORS_Preflight(t *testing.T) {
 }
 
 func TestCORS_SimpleRequest(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com")
+	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rw := httptest.NewRecorder()
@@ -37,7 +37,7 @@ func TestCORS_SimpleRequest(t *testing.T) {
 }
 
 func TestCORS_Wildcard(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "*")
+	router := NewRouter(&mockStore{}, &mockManager{}, "*", nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rw := httptest.NewRecorder()
@@ -48,11 +48,6 @@ func TestCORS_Wildcard(t *testing.T) {
 	}
 }
 
-// routerMockProxy satisfies MessageProxy for the router-level test in NewRouter.
-// NewRouter creates its own sandbox.NewProxy(), so these router tests don't use
-// a mock proxy — they test CORS only and hit /health which needs no proxy.
-
-// Ensure mockStore satisfies ConversationStore for router tests (already defined in handlers_test.go).
-var _ ConversationStore = (*mockStore)(nil)
+// Ensure mockStore and mockManager satisfy the interfaces (compile-time check).
+var _ TaskStore = (*mockStore)(nil)
 var _ SandboxManager = (*mockManager)(nil)
-

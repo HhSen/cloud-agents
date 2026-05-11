@@ -39,8 +39,12 @@ type AnthropicConfig struct {
 }
 
 type OrangeFSConfig struct {
-	Addr   string `yaml:"addr"`
-	Volume string `yaml:"volume"`
+	Addr      string `yaml:"addr"`     // injected into sandbox as ORANGEFS_RS_ADDR
+	Token     string `yaml:"token"`    // injected into sandbox as ORANGEFS_TOKEN
+	Endpoint  string `yaml:"endpoint"` // public S3 endpoint URL for the backend client
+	Volume    string `yaml:"volume"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
 }
 
 func Load(path string) (*Config, error) {

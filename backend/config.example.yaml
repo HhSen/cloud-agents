@@ -23,6 +23,13 @@ anthropic:
   disable_experimental_betas: ""
 
 orangefs:
-  # Optional — injected as ORANGEFS_RS_ADDR and ORANGEFS_VOLUME
+  # Injected into sandbox as ORANGEFS_RS_ADDR (internal host:port)
   addr: ""
+  # Injected into sandbox as ORANGEFS_TOKEN
+  token: ""
+  # Public S3 endpoint URL used by the backend's own S3 client
+  endpoint: ""
   volume: ""
+  # Credentials for the backend's own S3 client (reading session history)
+  access_key: ""
+  secret_key: ""

@@ -11,29 +11,29 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/your-org/platform-backend/internal/conversation"
+	"github.com/your-org/platform-backend/internal/task"
 )
 
 // ---- mock types ----
 
 type mockStore struct {
 	mu   sync.Mutex
-	conv *conversation.Conversation
+	task *task.Task
 }
 
-func (m *mockStore) Create(env map[string]string) *conversation.Conversation {
+func (m *mockStore) Create(username string, env map[string]string) *task.Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s := conversation.NewStore()
-	m.conv = s.Create(env)
-	return m.conv
+	s := task.NewStore()
+	m.task = s.Create(username, env)
+	return m.task
 }
 
-func (m *mockStore) Get(id string) *conversation.Conversation {
+func (m *mockStore) Get(id string) *task.Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.conv != nil && m.conv.ID == id {
-		return m.conv
+	if m.task != nil && m.task.ID == id {
+		return m.task
 	}
 	return nil
 }
@@ -47,7 +47,7 @@ type mockManager struct {
 	aliveErr     error
 }
 
-func (m *mockManager) ProvisionForConversation(_ context.Context, conv *conversation.Conversation) error {
+func (m *mockManager) ProvisionForTask(_ context.Context, _ *task.Task) error {
 	m.calls.Add(1)
 	return m.provisionErr
 }
@@ -62,47 +62,47 @@ type mockProxy struct {
 	err error
 }
 
-func (m *mockProxy) StreamMessage(_ context.Context, _ *conversation.Conversation, _ string, w http.ResponseWriter) error {
+func (m *mockProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, w http.ResponseWriter) error {
 	return m.err
 }
 
 // ---- helpers ----
 
-func newHandler(store ConversationStore, mgr SandboxManager, proxy MessageProxy) *Handler {
-	return NewHandler(store, mgr, proxy)
+func newHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy) *Handler {
+	return NewHandler(store, mgr, proxy, nil)
 }
 
-func convWithSandbox(sandboxID, sessionID string) *conversation.Conversation {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	conv.SetRunning(sandboxID, "http://proxy/", map[string]string{})
+func taskWithSandbox(sandboxID, sessionID string) *task.Task {
+	s := task.NewStore()
+	t := s.Create("", nil)
+	t.SetRunning(sandboxID, "http://proxy/", map[string]string{})
 	if sessionID != "" {
-		conv.SetAgentSessionID(sessionID)
+		t.SetAgentSessionID(sessionID)
 	}
-	return conv
+	return t
 }
 
-// provisionedConv returns a conversation that went through EnsureProvisioned so
+// provisionedTask returns a task that went through EnsureProvisioned so
 // provisioned=true, simulating a session that was previously fully provisioned.
-func provisionedConv(sandboxID string) *conversation.Conversation {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	conv.EnsureProvisioned(func() error {
-		conv.SetRunning(sandboxID, "http://proxy/", map[string]string{})
+func provisionedTask(sandboxID string) *task.Task {
+	s := task.NewStore()
+	t := s.Create("", nil)
+	t.EnsureProvisioned(func() error {
+		t.SetRunning(sandboxID, "http://proxy/", map[string]string{})
 		return nil
 	})
-	return conv
+	return t
 }
 
-// ---- CreateConversation ----
+// ---- CreateTask ----
 
-func TestCreateConversation_NoBody(t *testing.T) {
+func TestCreateTask_NoBody(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks", nil)
 	rw := httptest.NewRecorder()
-	h.CreateConversation(rw, req)
+	h.CreateTask(rw, req)
 
 	if rw.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", rw.Code)
@@ -114,52 +114,72 @@ func TestCreateConversation_NoBody(t *testing.T) {
 	}
 }
 
-func TestCreateConversation_WithEnv(t *testing.T) {
+func TestCreateTask_WithEnv(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks",
 		strings.NewReader(`{"env":{"FOO":"bar"}}`))
 	rw := httptest.NewRecorder()
-	h.CreateConversation(rw, req)
+	h.CreateTask(rw, req)
 
 	if rw.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", rw.Code)
 	}
 	store.mu.Lock()
-	env := store.conv.ExtraEnv()
+	env := store.task.ExtraEnv()
 	store.mu.Unlock()
 	if env["FOO"] != "bar" {
-		t.Errorf("expected FOO=bar in conversation env, got %v", env)
+		t.Errorf("expected FOO=bar in task env, got %v", env)
 	}
 }
 
-func TestCreateConversation_InvalidJSON(t *testing.T) {
+func TestCreateTask_WithUsername(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks",
+		strings.NewReader(`{"username":"alice"}`))
+	rw := httptest.NewRecorder()
+	h.CreateTask(rw, req)
+
+	if rw.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", rw.Code)
+	}
+	store.mu.Lock()
+	username := store.task.Username
+	store.mu.Unlock()
+	if username != "alice" {
+		t.Errorf("expected Username=alice, got %q", username)
+	}
+}
+
+func TestCreateTask_InvalidJSON(t *testing.T) {
+	store := &mockStore{}
+	h := newHandler(store, &mockManager{}, &mockProxy{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks",
 		strings.NewReader(`{bad json`))
 	rw := httptest.NewRecorder()
-	h.CreateConversation(rw, req)
+	h.CreateTask(rw, req)
 
-	// Invalid JSON is ignored; conversation still created.
+	// Invalid JSON is ignored; task still created.
 	if rw.Code != http.StatusCreated {
 		t.Fatalf("expected 201 even with bad JSON, got %d", rw.Code)
 	}
 }
 
-// ---- GetConversation ----
+// ---- GetTask ----
 
-func TestGetConversation_Found(t *testing.T) {
-	conv := convWithSandbox("sb-1", "sess-1")
-	store := &mockStore{conv: conv}
+func TestGetTask_Found(t *testing.T) {
+	tsk := taskWithSandbox("sb-1", "sess-1")
+	store := &mockStore{task: tsk}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/conversations/"+conv.ID, nil)
-	req.SetPathValue("id", conv.ID)
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/"+tsk.ID, nil)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
-	h.GetConversation(rw, req)
+	h.GetTask(rw, req)
 
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rw.Code)
@@ -177,14 +197,14 @@ func TestGetConversation_Found(t *testing.T) {
 	}
 }
 
-func TestGetConversation_NotFound(t *testing.T) {
+func TestGetTask_NotFound(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/conversations/missing", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/missing", nil)
 	req.SetPathValue("id", "missing")
 	rw := httptest.NewRecorder()
-	h.GetConversation(rw, req)
+	h.GetTask(rw, req)
 
 	if rw.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rw.Code)
@@ -197,7 +217,7 @@ func TestSendMessage_NotFound(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/missing/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/missing/messages",
 		strings.NewReader(`{"prompt":"hi"}`))
 	req.SetPathValue("id", "missing")
 	rw := httptest.NewRecorder()
@@ -209,13 +229,13 @@ func TestSendMessage_NotFound(t *testing.T) {
 }
 
 func TestSendMessage_EmptyPrompt(t *testing.T) {
-	conv := convWithSandbox("", "")
-	store := &mockStore{conv: conv}
+	tsk := taskWithSandbox("", "")
+	store := &mockStore{task: tsk}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":""}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
@@ -225,13 +245,13 @@ func TestSendMessage_EmptyPrompt(t *testing.T) {
 }
 
 func TestSendMessage_NoPromptField(t *testing.T) {
-	conv := convWithSandbox("", "")
-	store := &mockStore{conv: conv}
+	tsk := taskWithSandbox("", "")
+	store := &mockStore{task: tsk}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
@@ -241,70 +261,66 @@ func TestSendMessage_NoPromptField(t *testing.T) {
 }
 
 func TestSendMessage_ProvisionError(t *testing.T) {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	store := &mockStore{conv: conv}
+	s := task.NewStore()
+	tsk := s.Create("", nil)
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{provisionErr: errors.New("quota exceeded")}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hi"}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
 	if rw.Code != http.StatusBadGateway {
 		t.Fatalf("expected 502, got %d", rw.Code)
 	}
-	if conv.GetState() != conversation.StateError {
-		t.Errorf("expected StateError after provision failure, got %v", conv.GetState())
+	if tsk.GetState() != task.StateError {
+		t.Errorf("expected StateError after provision failure, got %v", tsk.GetState())
 	}
 }
 
 func TestSendMessage_Success(t *testing.T) {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	store := &mockStore{conv: conv}
+	s := task.NewStore()
+	tsk := s.Create("", nil)
+	store := &mockStore{task: tsk}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hello"}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
-	// After streaming, status code depends on when WriteHeader was called.
-	// With a mock proxy that writes nothing, the recorder default is 200.
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rw.Code)
 	}
 }
 
 func TestSendMessage_ClientDisconnect(t *testing.T) {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	store := &mockStore{conv: conv}
+	s := task.NewStore()
+	tsk := s.Create("", nil)
+	store := &mockStore{task: tsk}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // already cancelled — simulates client disconnect
 
-	// Proxy that returns nil when context is cancelled.
 	h := newHandler(store, &mockManager{}, &mockProxy{err: nil})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hi"}`))
 	req = req.WithContext(ctx)
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 
-	// Should not panic or log an error.
 	h.SendMessage(rw, req)
 }
 
 func TestSendMessage_ProvisionCalledOnce(t *testing.T) {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	store := &mockStore{conv: conv}
+	s := task.NewStore()
+	tsk := s.Create("", nil)
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{}
 	h := newHandler(store, mgr, &mockProxy{})
 
@@ -313,9 +329,9 @@ func TestSendMessage_ProvisionCalledOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+			req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 				strings.NewReader(`{"prompt":"hi"}`))
-			req.SetPathValue("id", conv.ID)
+			req.SetPathValue("id", tsk.ID)
 			rw := httptest.NewRecorder()
 			h.SendMessage(rw, req)
 		}()
@@ -323,19 +339,19 @@ func TestSendMessage_ProvisionCalledOnce(t *testing.T) {
 	wg.Wait()
 
 	if mgr.calls.Load() != 1 {
-		t.Errorf("expected ProvisionForConversation called once, called %d times", mgr.calls.Load())
+		t.Errorf("expected ProvisionForTask called once, called %d times", mgr.calls.Load())
 	}
 }
 
 func TestSendMessage_SandboxAlive_NoReprovision(t *testing.T) {
-	conv := provisionedConv("sb-alive")
-	store := &mockStore{conv: conv}
+	tsk := provisionedTask("sb-alive")
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{sandboxAlive: true}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hi"}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
@@ -348,15 +364,14 @@ func TestSendMessage_SandboxAlive_NoReprovision(t *testing.T) {
 }
 
 func TestSendMessage_SandboxExpired_Reprovisions(t *testing.T) {
-	conv := provisionedConv("sb-expired")
-	store := &mockStore{conv: conv}
-	// sandboxAlive=false simulates TTL expiry; provisioning succeeds.
+	tsk := provisionedTask("sb-expired")
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{sandboxAlive: false}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hello after expiry"}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
@@ -364,62 +379,57 @@ func TestSendMessage_SandboxExpired_Reprovisions(t *testing.T) {
 		t.Fatalf("expected 200 after re-provision, got %d", rw.Code)
 	}
 	if mgr.calls.Load() != 1 {
-		t.Errorf("expected ProvisionForConversation called once for re-provision, got %d", mgr.calls.Load())
+		t.Errorf("expected ProvisionForTask called once for re-provision, got %d", mgr.calls.Load())
 	}
 }
 
 func TestSendMessage_SandboxAliveCheckError_Continues(t *testing.T) {
-	conv := provisionedConv("sb-check-err")
-	store := &mockStore{conv: conv}
-	// aliveErr simulates a transient network error; state must be preserved and the
-	// existing proxy should be used (ResetIfExpired does not reset on check error).
+	tsk := provisionedTask("sb-check-err")
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{sandboxAlive: false, aliveErr: errors.New("network timeout")}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/conversations/"+conv.ID+"/messages",
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
 		strings.NewReader(`{"prompt":"hi"}`))
-	req.SetPathValue("id", conv.ID)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
 	h.SendMessage(rw, req)
 
-	// Should proceed (not fail) — existing proxy URL is retained; it will surface errors
-	// if the sandbox is truly dead.
 	if rw.Code != http.StatusOK {
 		t.Fatalf("expected 200 when alive check errors, got %d", rw.Code)
 	}
-	// No re-provisioning — sandbox was not reset because the check was inconclusive.
 	if mgr.calls.Load() != 0 {
 		t.Errorf("expected no re-provisioning on alive check error, got %d calls", mgr.calls.Load())
 	}
 }
 
-// ---- DeleteConversation ----
+// ---- DeleteTask ----
 
-func TestDeleteConversation_NotFound(t *testing.T) {
+func TestDeleteTask_NotFound(t *testing.T) {
 	store := &mockStore{}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/missing", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/missing", nil)
 	req.SetPathValue("id", "missing")
 	rw := httptest.NewRecorder()
-	h.DeleteConversation(rw, req)
+	h.DeleteTask(rw, req)
 
 	if rw.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", rw.Code)
 	}
 }
 
-func TestDeleteConversation_NoSandbox(t *testing.T) {
-	s := conversation.NewStore()
-	conv := s.Create(nil)
-	store := &mockStore{conv: conv}
+func TestDeleteTask_NoSandbox(t *testing.T) {
+	s := task.NewStore()
+	tsk := s.Create("", nil)
+	store := &mockStore{task: tsk}
 	mgr := &mockManager{}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conv.ID, nil)
-	req.SetPathValue("id", conv.ID)
+	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/"+tsk.ID, nil)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
-	h.DeleteConversation(rw, req)
+	h.DeleteTask(rw, req)
 
 	if rw.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rw.Code)
@@ -429,17 +439,17 @@ func TestDeleteConversation_NoSandbox(t *testing.T) {
 	}
 }
 
-func TestDeleteConversation_WithSandbox(t *testing.T) {
-	conv := convWithSandbox("sb-del", "")
-	store := &mockStore{conv: conv}
+func TestDeleteTask_WithSandbox(t *testing.T) {
+	tsk := taskWithSandbox("sb-del", "")
+	store := &mockStore{task: tsk}
 	var deletedID string
 	mgr := &deletingManager{onDelete: func(id string) { deletedID = id }}
 	h := newHandler(store, mgr, &mockProxy{})
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/conversations/"+conv.ID, nil)
-	req.SetPathValue("id", conv.ID)
+	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/"+tsk.ID, nil)
+	req.SetPathValue("id", tsk.ID)
 	rw := httptest.NewRecorder()
-	h.DeleteConversation(rw, req)
+	h.DeleteTask(rw, req)
 
 	if rw.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", rw.Code)
@@ -454,9 +464,7 @@ type deletingManager struct {
 	onDelete func(string)
 }
 
-func (m *deletingManager) ProvisionForConversation(_ context.Context, _ *conversation.Conversation) error {
-	return nil
-}
+func (m *deletingManager) ProvisionForTask(_ context.Context, _ *task.Task) error { return nil }
 func (m *deletingManager) DeleteSandbox(_ context.Context, id string) error {
 	if m.onDelete != nil {
 		m.onDelete(id)
