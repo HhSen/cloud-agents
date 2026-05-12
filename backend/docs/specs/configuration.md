@@ -108,6 +108,61 @@ See [ofsspec.md](ofsspec.md) for the OFS file layout for session history.
 
 ---
 
+## `mysql`
+
+**Required.** The server refuses to start if `dsn` is empty.
+
+| Field | Required | Description |
+|---|---|---|
+| `dsn` | ✓ | MySQL DSN. Format: `user:pass@tcp(host:port)/dbname?parseTime=true&loc=UTC` |
+
+`db.Open` runs `AutoMigrate` on startup to create/update the `users` table automatically.
+
+---
+
+## `auth`
+
+**Required** (all fields must be set when MySQL is configured).
+
+| Field | Required | Description |
+|---|---|---|
+| `secret_key` | ✓ | HS256 signing key for app JWTs. Use a long random hex string. Rotate to invalidate all active sessions. |
+| `oidc_state_secret` | ✓ when OIDC enabled | Separate HS256 key for OIDC state JWTs. Must not equal `secret_key`. |
+| `token_ttl_seconds` | ✓ | Lifetime of issued app JWTs. Default: `86400` (24 h) |
+| `state_ttl_seconds` | ✓ when OIDC enabled | Lifetime of OIDC state JWTs. Default: `600` (10 min) |
+| `frontend_url` | ✓ | Frontend origin (e.g. `http://localhost:5173`). Used as the redirect base after successful auth. |
+
+---
+
+## `oidc`
+
+Optional. OIDC routes are registered only when `client_id` and `discovery_url` are both non-empty.
+
+| Field | Description |
+|---|---|
+| `client_id` | OAuth2 client ID registered with the IdP |
+| `client_secret` | OAuth2 client secret |
+| `discovery_url` | OIDC discovery document URL (e.g. `https://accounts.google.com/.well-known/openid-configuration`) |
+| `redirect_uri` | Browser callback URL (e.g. `http://your-service/api/auth/oidc/callback`). Must match IdP registration. |
+| `cli_redirect_uri` | CLI flow callback URL (e.g. `http://your-service/api/auth/oidc/cli-callback`). Required for CLI login. |
+
+---
+
+## `sso`
+
+Optional. SSO routes are registered only when `app_id` is non-empty.
+
+| Field | Description |
+|---|---|
+| `base_url` | SSO base URL. Default: `https://mis.diditaxi.com.cn` |
+| `app_id` | App ID assigned by UPM when registering the application |
+| `app_key` | App key assigned by UPM |
+| `callback_url` | Callback URL registered in UPM (e.g. `http://your-service/api/auth/sso/callback`). Must exactly match UPM registration — not passed dynamically. |
+
+> **Note:** The `callback_url` value must match what is registered in UPM for the given `app_id`. The SSO server uses the UPM-registered value; this field is purely for documentation and operational reference.
+
+---
+
 ## Full annotated example
 
 ```yaml
@@ -139,4 +194,27 @@ orangefs:
   volume: ""
   access_key: ""
   secret_key: ""
+
+mysql:
+  dsn: "user:pass@tcp(localhost:3306)/l_lab?parseTime=true&loc=UTC"
+
+auth:
+  secret_key: "<long-random-hex>"
+  oidc_state_secret: "<another-long-random-hex>"   # required only if oidc is enabled
+  token_ttl_seconds: 86400
+  state_ttl_seconds: 600
+  frontend_url: "http://localhost:5173"
+
+oidc:
+  client_id: ""
+  client_secret: ""
+  discovery_url: ""       # e.g. https://accounts.google.com/.well-known/openid-configuration
+  redirect_uri: ""        # e.g. http://localhost:8081/api/auth/oidc/callback
+  cli_redirect_uri: ""    # e.g. http://localhost:8081/api/auth/oidc/cli-callback
+
+sso:
+  base_url: "https://mis.diditaxi.com.cn"
+  app_id: ""
+  app_key: ""
+  callback_url: ""        # must match UPM registration
 ```

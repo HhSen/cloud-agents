@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "cooper": {
+      "source": "cooper",
+      "sourceType": "registry",
+      "computedHash": "b669a835f0b3d2af8dce0887483f42c3fbf2eeded6cd50f2a13ef718abb643f0"
+    }
+  }
+}

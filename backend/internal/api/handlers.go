@@ -7,8 +7,12 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/your-org/platform-backend/internal/auth"
+	"github.com/your-org/platform-backend/internal/db"
 	"github.com/your-org/platform-backend/internal/storage"
 	"github.com/your-org/platform-backend/internal/task"
+	"github.com/your-org/platform-backend/pkg/config"
+	"gorm.io/gorm"
 )
 
 // TaskStore is the storage interface for Task records.
@@ -63,6 +67,52 @@ func NewHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy, fileSto
 	}
 }
 
+// PasswordLogin returns a handler for POST /api/auth/login (username + password).
+// PasswordLoginHandler returns a Gin handler for POST /api/auth/login.
+func PasswordLoginHandler(gormDB *gorm.DB, authCfg config.AuthConfig) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var body struct {
+			Username string `json:"username" binding:"required"`
+			Password string `json:"password" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
+			return
+		}
+		user, err := db.FindByCredentials(gormDB, body.Username, body.Password)
+		if err != nil {
+			log.Printf("password login db error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		if user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		ttl := time.Duration(authCfg.TokenTTLSeconds) * time.Second
+		token, err := auth.CreateToken(authCfg.SecretKey, ttl, user.ID, user.UserName)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"access_token": token})
+	}
+}
+
+// checkTaskOwner returns true and writes a 403 if the authenticated user does not
+// own the task. When auth is disabled (no user on context) ownership is not enforced.
+func checkTaskOwner(c *gin.Context, taskUsername string) bool {
+	u := auth.GetUser(c)
+	if u == nil {
+		return false
+	}
+	if u.UserName != taskUsername {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return true
+	}
+	return false
+}
+
 // CreateTask handles POST /api/tasks.
 //
 // @Summary      Create a task
@@ -80,6 +130,11 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.String(http.StatusBadRequest, "invalid request body")
 		return
+	}
+
+	// If auth middleware is active, override the body username with the authenticated user.
+	if u := auth.GetUser(c); u != nil {
+		body.Username = u.UserName
 	}
 
 	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env)
@@ -120,6 +175,9 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	}
 	if t == nil {
 		c.String(http.StatusNotFound, "task not found")
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
 		return
 	}
 
@@ -194,6 +252,9 @@ func (h *Handler) GetTask(c *gin.Context) {
 		c.String(http.StatusNotFound, "task not found")
 		return
 	}
+	if checkTaskOwner(c, t.Username) {
+		return
+	}
 
 	_, sandboxID, sessionID, stateStr := t.Info()
 	c.JSON(http.StatusOK, getTaskResponse{
@@ -225,6 +286,9 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 	}
 	if t == nil {
 		c.String(http.StatusNotFound, "task not found")
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
 		return
 	}
 
@@ -267,6 +331,9 @@ func (h *Handler) GetTaskHistory(c *gin.Context) {
 	}
 	if t == nil {
 		c.String(http.StatusNotFound, "task not found")
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
 		return
 	}
 

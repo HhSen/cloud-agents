@@ -3,6 +3,7 @@ Opensandbox
 
 # ── Go ──────────────────────────────────────────────
 backend/config.yaml
+backend/config.*.yaml
 backend/bin/
 backend/*.out
 backend/*.test

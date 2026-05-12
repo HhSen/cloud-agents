@@ -42,3 +42,27 @@ orangefs:
   # Credentials for the backend's own S3 client (reading session history)
   access_key: ""
   secret_key: ""
+
+# Optional — omit or leave dsn empty to skip MySQL (auth disabled in dev mode).
+mysql:
+  dsn: ""  # e.g. user:pass@tcp(localhost:3306)/lucas?parseTime=true&loc=UTC
+
+auth:
+  secret_key: ""          # random long string for signing app JWTs
+  oidc_state_secret: ""   # separate key for OIDC state JWTs
+  token_ttl_seconds: 86400
+  state_ttl_seconds: 600
+  frontend_url: "http://localhost:5173"
+
+oidc:
+  client_id: ""
+  client_secret: ""
+  discovery_url: ""       # e.g. https://accounts.google.com/.well-known/openid-configuration
+  redirect_uri: ""        # e.g. http://localhost:8081/api/auth/oidc/callback
+  cli_redirect_uri: ""    # e.g. http://localhost:8081/api/auth/oidc/cli-callback
+
+sso:
+  base_url: "https://mis.diditaxi.com.cn"   # SSO base; all API paths are relative to this
+  app_id: ""                                 # assigned by UPM when you register the application
+  app_key: ""                                # assigned by UPM
+  callback_url: ""                           # e.g. http://your-service/api/auth/sso/callback — must match UPM registration

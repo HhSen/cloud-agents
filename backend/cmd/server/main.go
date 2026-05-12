@@ -14,6 +14,9 @@ import (
 
 	"github.com/go-redis/redis/v8"
 	"github.com/your-org/platform-backend/internal/api"
+	"github.com/your-org/platform-backend/internal/db"
+	oidcpkg "github.com/your-org/platform-backend/internal/oidc"
+	ssopkg "github.com/your-org/platform-backend/internal/sso"
 	"github.com/your-org/platform-backend/internal/sandbox"
 	"github.com/your-org/platform-backend/internal/storage"
 	"github.com/your-org/platform-backend/internal/task"
@@ -62,12 +65,13 @@ func main() {
 	}
 
 	var repo task.Repository
+	var rdb *redis.Client
 	if cfg.Redis.URL != "" {
 		opt, err := redis.ParseURL(cfg.Redis.URL)
 		if err != nil {
 			log.Fatalf("parse redis URL: %v", err)
 		}
-		rdb := redis.NewClient(opt)
+		rdb = redis.NewClient(opt)
 		if err := rdb.Ping(context.Background()).Err(); err != nil {
 			log.Fatalf("redis ping: %v", err)
 		}
@@ -78,8 +82,51 @@ func main() {
 		log.Printf("task store: in-memory (set redis.url in config to enable persistence)")
 	}
 
+	if cfg.MySQL.DSN == "" {
+		log.Fatalf("mysql.dsn is required")
+	}
+	if cfg.Auth.SecretKey == "" {
+		log.Fatalf("auth.secret_key must be set")
+	}
+	if cfg.Auth.TokenTTLSeconds <= 0 {
+		log.Fatalf("auth.token_ttl_seconds must be > 0")
+	}
+	gormDB, err := db.Open(cfg.MySQL.DSN)
+	if err != nil {
+		log.Fatalf("open mysql: %v", err)
+	}
+	log.Printf("MySQL connected")
+
+	var oidcSvc *oidcpkg.Service
+	if cfg.OIDC.ClientID != "" && cfg.OIDC.DiscoveryURL != "" {
+		if cfg.Auth.OIDCStateSecret == "" {
+			log.Fatalf("auth.oidc_state_secret must be set when OIDC is enabled")
+		}
+		if cfg.Auth.StateTTLSeconds <= 0 {
+			log.Fatalf("auth.state_ttl_seconds must be > 0 when OIDC is enabled")
+		}
+		oidcSvc = oidcpkg.New(cfg.OIDC)
+		log.Printf("OIDC enabled: discovery=%s", cfg.OIDC.DiscoveryURL)
+	}
+
+	var ssoSvc *ssopkg.Service
+	if cfg.SSO.AppID != "" {
+		ssoSvc = ssopkg.New(cfg.SSO)
+		log.Printf("SSO enabled: base=%s", cfg.SSO.BaseURL)
+	}
+
 	mgr := sandbox.NewManager(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey, baseEnv, cfg.Sandbox.Image, platform, cfg.Sandbox.MemoryLimit, cfg.Sandbox.CPULimit)
-	router := api.NewRouter(repo, mgr, cfg.Server.CORSOrigin, ofsClient)
+	router := api.NewRouter(api.RouterDeps{
+		Store:       repo,
+		Manager:     mgr,
+		FileStore:   ofsClient,
+		CORSOrigin:  cfg.Server.CORSOrigin,
+		DB:          gormDB,
+		Redis:       rdb,
+		Cfg:         cfg,
+		OIDCService: oidcSvc,
+		SSOService:  ssoSvc,
+	})
 
 	log.Printf("listening on :%s", cfg.Server.Port)
 	if err := http.ListenAndServe(":"+cfg.Server.Port, router); err != nil {

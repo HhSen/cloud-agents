@@ -4,10 +4,21 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/your-org/platform-backend/pkg/config"
 )
 
+func newTestRouter(corsOrigin string) http.Handler {
+	return NewRouter(RouterDeps{
+		Store:      &mockStore{},
+		Manager:    &mockManager{},
+		CORSOrigin: corsOrigin,
+		Cfg:        &config.Config{},
+	})
+}
+
 func TestCORS_Preflight(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com", nil)
+	router := newTestRouter("http://example.com")
 
 	req := httptest.NewRequest(http.MethodOptions, "/health", nil)
 	rw := httptest.NewRecorder()
@@ -25,7 +36,7 @@ func TestCORS_Preflight(t *testing.T) {
 }
 
 func TestCORS_SimpleRequest(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "http://example.com", nil)
+	router := newTestRouter("http://example.com")
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rw := httptest.NewRecorder()
@@ -37,7 +48,7 @@ func TestCORS_SimpleRequest(t *testing.T) {
 }
 
 func TestCORS_Wildcard(t *testing.T) {
-	router := NewRouter(&mockStore{}, &mockManager{}, "*", nil)
+	router := newTestRouter("*")
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rw := httptest.NewRecorder()

@@ -1,0 +1,117 @@
+{
+  "skill_name": "cooper",
+  "evals": [
+    {
+      "id": 1,
+      "name": "list-knowledge-bases",
+      "prompt": "列出我的所有石墨知识库",
+      "expected_output": "应该使用 mcporter 调用 Cooper.listKnowledgeBases，参数为 ownType=1（我拥有的）或 ownType=0（全部）",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "read-document",
+      "prompt": "帮我读取这个石墨文档的内容，文档ID是 123456789",
+      "expected_output": "应该使用 mcporter 调用 Cooper.readContent，appId=2，resourceId=123456789",
+      "files": []
+    },
+    {
+      "id": 3,
+      "name": "read-spreadsheet-range",
+      "prompt": "读取表格 Sheet1 的 A1 到 C10 区域的数据，表格ID是 sheet456",
+      "expected_output": "应该使用 mcporter 调用 Cooper.readContent，resourceId=sheet456，appId=2，range='Sheet1!A1:C10'",
+      "files": []
+    },
+    {
+      "id": 4,
+      "name": "search-content",
+      "prompt": "在石墨文档中搜索包含'项目计划'的内容",
+      "expected_output": "应该使用 mcporter 调用 Cooper.search，key 参数为'项目计划'",
+      "files": []
+    },
+    {
+      "id": 5,
+      "name": "get-recent-docs",
+      "prompt": "显示我最近编辑过的石墨文档",
+      "expected_output": "应该使用 mcporter 调用 Cooper.listRecent，queryType=2（最近编辑），type='coo_doc'",
+      "files": []
+    },
+    {
+      "id": 6,
+      "name": "get-knowledge-directory",
+      "prompt": "获取这个知识库的目录结构，ID是 kb-001",
+      "expected_output": "应该使用 mcporter 调用 Cooper.getKnowledgeDirectory，使用提供的知识库ID",
+      "files": []
+    },
+    {
+      "id": 7,
+      "name": "create-knowledge-page",
+      "prompt": "在我的知识库 space-999 中创建一个新页面，标题是'会议记录'，内容是'## 团队周会\n\n讨论了项目进度...'，放在根目录下",
+      "expected_output": "应该使用 mcporter 调用 Cooper.createKnowledgePage，spaceId=space-999，name=会议记录，parentId=0，content 为 markdown 内容",
+      "files": []
+    },
+    {
+      "id": 8,
+      "name": "list-team-spaces",
+      "prompt": "看看我参与了哪些团队空间",
+      "expected_output": "应该使用 mcporter 调用 Cooper.listCooperSpaces，type=2（我参与的）",
+      "files": []
+    },
+    {
+      "id": 9,
+      "name": "browse-space-directory",
+      "prompt": "浏览一下我的个人空间里有什么文件",
+      "expected_output": "应该使用 mcporter 调用 Cooper.getCooperSpaceDirectory，spaceId=0（个人空间），parentId=0（根目录）",
+      "files": []
+    },
+    {
+      "id": 10,
+      "name": "create-folder-and-document",
+      "prompt": "在我的团队空间 sp-123 里创建一个文件夹叫'Q2规划'，然后在里面新建一个文档叫'项目排期'，内容是'# 项目排期\n\n## 里程碑\n\n## 资源分配'",
+      "expected_output": "应该分两步：1) 调用 Cooper.createCooperDirectory 创建文件夹，2) 用返回的 folderId 调用 Cooper.createCooperDocument 创建文档",
+      "files": []
+    },
+    {
+      "id": 11,
+      "name": "download-file",
+      "prompt": "帮我下载团队空间 sp-456 里的那个文件，resourceId 是 file-789",
+      "expected_output": "应该使用 mcporter 调用 Cooper.downloadCooperFile，spaceId=sp-456，resourceId=file-789",
+      "files": []
+    },
+    {
+      "id": 12,
+      "name": "recent-sheets",
+      "prompt": "我最近看过哪些表格文件？",
+      "expected_output": "应该使用 mcporter 调用 Cooper.listRecent，queryType=1（最近访问），type='coo_sheet'",
+      "files": []
+    },
+    {
+      "id": 13,
+      "name": "list-knowledge-base-tags",
+      "prompt": "我的知识库 kb-2026 里有哪些标签？",
+      "expected_output": "应该使用 mcporter 调用 Cooper.getKnowledgeBaseTags，knowledgeId='kb-2026'",
+      "files": []
+    },
+    {
+      "id": 14,
+      "name": "get-page-tags",
+      "prompt": "看看这个知识库页面有哪些标签，页面ID是 page-888",
+      "expected_output": "应该使用 mcporter 调用 Cooper.getPageTags，pageId='page-888'，返回结果包含系统安全标签和自定义标签",
+      "files": []
+    },
+    {
+      "id": 15,
+      "name": "add-existing-tag-to-page",
+      "prompt": "给知识库页面 page-999 添加'技术文档'标签，标签ID是 tag-42",
+      "expected_output": "应该使用 mcporter 调用 Cooper.addPageTag，pageId='page-999'，tagId='tag-42'，tagName='技术文档'",
+      "files": []
+    },
+    {
+      "id": 16,
+      "name": "add-new-tag-to-page",
+      "prompt": "给页面 page-111 创建一个新标签叫'Q2规划'并添加上去",
+      "expected_output": "应该使用 mcporter 调用 Cooper.addPageTag，pageId='page-111'，tagId=''（空字符串表示新建），tagName='Q2规划'",
+      "files": []
+    }
+  ]
+}

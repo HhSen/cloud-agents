@@ -61,9 +61,44 @@ orangefs:
   volume: ""
   access_key: ""
   secret_key: ""
+
+mysql:
+  dsn: "user:pass@tcp(localhost:3306)/l_lab?parseTime=true&loc=UTC"  # required
+
+auth:
+  secret_key: "<long-random-hex>"      # required — signs app JWTs
+  oidc_state_secret: "<random-hex>"    # required when OIDC is enabled
+  token_ttl_seconds: 86400
+  state_ttl_seconds: 600
+  frontend_url: "http://localhost:5173"
+
+# Optional — leave all fields empty to disable OIDC routes
+oidc:
+  client_id: ""
+  client_secret: ""
+  discovery_url: ""
+  redirect_uri: ""
+  cli_redirect_uri: ""
+
+# Optional — leave app_id empty to disable SSO routes
+sso:
+  base_url: "https://mis.diditaxi.com.cn"
+  app_id: ""
+  app_key: ""
+  callback_url: ""   # must match UPM registration
 ```
 
 See `config.example.yaml` for the full annotated template and [docs/specs/configuration.md](docs/specs/configuration.md) for field-by-field reference.
+
+### Prerequisites
+
+Before starting the server, create the database:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS l_lab CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+`db.Open` runs `AutoMigrate` on startup to create/update the `users` table automatically.
 
 ### Task store selection at startup
 
@@ -84,9 +119,22 @@ backend/
 │   └── main.go                    # entry point: load config, wire deps, start server
 ├── internal/
 │   ├── api/
-│   │   ├── router.go              # ServeMux routes + CORS middleware
+│   │   ├── router.go              # Gin routes, RouterDeps wiring, CORS middleware
 │   │   ├── handlers.go            # HTTP handlers (one per endpoint)
 │   │   └── types.go               # request / response structs
+│   ├── auth/
+│   │   ├── token.go               # CreateToken / VerifyToken (HS256 JWTs)
+│   │   ├── middleware.go          # BearerAuth Gin middleware
+│   │   └── context.go             # set/get *db.User on gin.Context
+│   ├── db/
+│   │   ├── mysql.go               # db.Open + AutoMigrate
+│   │   └── user.go                # User model, FindOrCreate, FindByCredentials, AuthSource constants
+│   ├── oidc/
+│   │   ├── service.go             # go-oidc wrapper: discovery, AuthURL, ExchangeCode, VerifyIDToken
+│   │   └── handlers.go            # login, callback, cli-login, cli-callback, cli-poll
+│   ├── sso/
+│   │   ├── service.go             # Didi SSO HTTP client: CheckCode, CheckUserTicket, LoginURL
+│   │   └── handlers.go            # login, callback
 │   ├── sandbox/
 │   │   ├── client.go              # HTTP client for OpenSandbox lifecycle API
 │   │   ├── manager.go             # sandbox lifecycle: create → poll → health-check
@@ -120,6 +168,23 @@ backend/
 ## API Endpoints
 
 Interactive docs (Swagger UI) available at **`http://localhost:8081/swagger/index.html`** when the server is running.
+
+**Auth endpoints (public)**
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/auth/sso/login` | Redirect to Didi SSO login page (requires `sso.app_id` in config) |
+| `GET` | `/api/auth/sso/callback` | SSO callback — issues app JWT, redirects to `{frontend_url}/login/sso#access_token=…` |
+| `GET` | `/api/auth/oidc/login` | Redirect to OIDC provider (requires `oidc.client_id` in config) |
+| `GET` | `/api/auth/oidc/callback` | OIDC callback — issues app JWT, redirects to `{frontend_url}/login/oidc#access_token=…` |
+| `POST` | `/api/auth/oidc/cli-login` | CLI OIDC — body `{session_id}`, returns `{auth_url}`. Requires Redis. |
+| `GET` | `/api/auth/oidc/cli-callback` | CLI OIDC browser callback — writes token to Redis |
+| `GET` | `/api/auth/oidc/cli-poll` | CLI OIDC poll — `?session_id=…` → `{status, token?}` |
+| `POST` | `/api/auth/login` | Password login — body `{username, password}` → `{token}` |
+| `GET` | `/api/auth/dev/login` | Dev login (no SSO/OIDC only) — `?username=…` → redirect with token |
+| `GET` | `/api/runtime-config` | Returns active login modes for the frontend |
+
+**Task endpoints (protected — require `Authorization: Bearer <token>`)**
 
 | Method | Path | Status | Description |
 |---|---|---|---|

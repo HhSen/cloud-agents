@@ -13,6 +13,10 @@ type Config struct {
 	Anthropic AnthropicConfig `yaml:"anthropic"`
 	OrangeFS  OrangeFSConfig  `yaml:"orangefs"`
 	Redis     RedisConfig     `yaml:"redis"`
+	MySQL     MySQLConfig     `yaml:"mysql"`
+	Auth      AuthConfig      `yaml:"auth"`
+	OIDC      OIDCConfig      `yaml:"oidc"`
+	SSO       SSOConfig       `yaml:"sso"`
 }
 
 type ServerConfig struct {
@@ -43,6 +47,33 @@ type AnthropicConfig struct {
 
 type RedisConfig struct {
 	URL string `yaml:"url"` // e.g. redis://localhost:6379; empty = use in-memory store
+}
+
+type MySQLConfig struct {
+	DSN string `yaml:"dsn"`
+}
+
+type AuthConfig struct {
+	SecretKey       string `yaml:"secret_key"`
+	OIDCStateSecret string `yaml:"oidc_state_secret"`
+	TokenTTLSeconds int    `yaml:"token_ttl_seconds"`
+	StateTTLSeconds int    `yaml:"state_ttl_seconds"`
+	FrontendURL     string `yaml:"frontend_url"`
+}
+
+type OIDCConfig struct {
+	ClientID       string `yaml:"client_id"`
+	ClientSecret   string `yaml:"client_secret"`
+	DiscoveryURL   string `yaml:"discovery_url"`
+	RedirectURI    string `yaml:"redirect_uri"`
+	CLIRedirectURI string `yaml:"cli_redirect_uri"`
+}
+
+type SSOConfig struct {
+	BaseURL     string `yaml:"base_url"`
+	AppID       string `yaml:"app_id"`
+	AppKey      string `yaml:"app_key"`
+	CallbackURL string `yaml:"callback_url"`
 }
 
 type OrangeFSConfig struct {

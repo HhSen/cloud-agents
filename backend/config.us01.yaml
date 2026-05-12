@@ -32,3 +32,13 @@ orangefs:
 
 redis:
   url: "redis://localhost:6379"
+
+mysql:
+  dsn: "root:123456@tcp(localhost:3306)/l_lab?parseTime=true&loc=UTC"
+
+auth:
+  secret_key: "0bd3f3a799c6de13ece212c4cb455d0bd7ddd836bfe77da9c4a194f40ee1e6e3"
+  oidc_state_secret: "14e97ac5cff9e27c96652b4477c5b0299abaa0f25f50726f9ba21a4e80f1d982"
+  token_ttl_seconds: 86400
+  state_ttl_seconds: 600
+  frontend_url: "http://localhost:5173"
