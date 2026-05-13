@@ -64,6 +64,8 @@ func New(endpoint, volume, accessKey, secretKey string) (*Client, error) {
 	s3c := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = true
+		// OrangeFS does not support aws-chunked transfer encoding
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 	})
 
 	return &Client{s3: s3c, volume: volume}, nil
