@@ -108,3 +108,66 @@ export async function getHistory(taskId: string): Promise<SessionEntry[]> {
   if (!res.ok) throw new Error('Failed to get history')
   return res.json() as Promise<SessionEntry[]>
 }
+
+export interface Resource {
+  id: number
+  kind: 'skill' | 'mcp'
+  name: string
+  ofs_path: string
+  meta: Record<string, unknown>
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateResourcePayload {
+  kind: 'skill' | 'mcp'
+  name: string
+  content: string
+  meta?: Record<string, unknown>
+}
+
+export interface UpdateResourcePayload {
+  content?: string
+  meta?: Record<string, unknown>
+  is_active?: boolean
+}
+
+export async function listResources(): Promise<Resource[]> {
+  const res = await fetch(`${BASE}/api/resources`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to list resources')
+  return res.json() as Promise<Resource[]>
+}
+
+export async function createResource(payload: CreateResourcePayload): Promise<Resource> {
+  const res = await fetch(`${BASE}/api/resources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? 'Failed to create resource')
+  }
+  return res.json() as Promise<Resource>
+}
+
+export async function updateResource(id: number, payload: UpdateResourcePayload): Promise<Resource> {
+  const res = await fetch(`${BASE}/api/resources/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error('Failed to update resource')
+  return res.json() as Promise<Resource>
+}
+
+export async function deleteResource(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/api/resources/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok && res.status !== 404) throw new Error('Failed to delete resource')
+}

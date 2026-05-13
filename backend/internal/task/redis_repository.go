@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strconv"
+
+	"github.com/your-org/platform-backend/pkg/logger"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -123,21 +124,21 @@ func (o *redisTaskOps) persistRunning(sandboxID, proxyBaseURL string, proxyHeade
 		"proxy_base_url", proxyBaseURL,
 		"proxy_headers", string(headersJSON),
 	).Err(); err != nil {
-		log.Printf("redis: persist running for task %s: %v", o.taskID, err)
+		logger.Default().Error("redis: persist running", "task_id", o.taskID, "err", err)
 	}
 }
 
 func (o *redisTaskOps) persistProvisioning() {
 	ctx := context.Background()
 	if err := o.rdb.HSet(ctx, taskKey(o.taskID), "state", int(StateProvisioning)).Err(); err != nil {
-		log.Printf("redis: persist provisioning for task %s: %v", o.taskID, err)
+		logger.Default().Error("redis: persist provisioning", "task_id", o.taskID, "err", err)
 	}
 }
 
 func (o *redisTaskOps) persistError() {
 	ctx := context.Background()
 	if err := o.rdb.HSet(ctx, taskKey(o.taskID), "state", int(StateError)).Err(); err != nil {
-		log.Printf("redis: persist error for task %s: %v", o.taskID, err)
+		logger.Default().Error("redis: persist error state", "task_id", o.taskID, "err", err)
 	}
 }
 
@@ -154,7 +155,7 @@ func (o *redisTaskOps) persistSessionID(sessionID string) bool {
 	ctx := context.Background()
 	result, err := setSessionScript.Run(ctx, o.rdb, []string{taskKey(o.taskID)}, sessionID).Int()
 	if err != nil {
-		log.Printf("redis: persist session_id for task %s: %v", o.taskID, err)
+		logger.Default().Error("redis: persist session_id", "task_id", o.taskID, "err", err)
 		return false
 	}
 	return result == 1
@@ -250,6 +251,6 @@ func (o *redisTaskOps) resetForReprovisioning() {
 			"provisioned", "0",
 		).Err()
 	}); err != nil {
-		log.Printf("redis: reset for reprovisioning task %s: %v", o.taskID, err)
+		logger.Default().Error("redis: reset for reprovisioning", "task_id", o.taskID, "err", err)
 	}
 }

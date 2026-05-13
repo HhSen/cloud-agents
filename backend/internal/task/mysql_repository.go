@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
+
+	"github.com/your-org/platform-backend/pkg/logger"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/uuid"
@@ -149,7 +150,7 @@ func (r *MySQLRepository) Delete(ctx context.Context, id string) error {
 	}
 	// Best-effort cleanup of Redis sandbox data and lock key.
 	if err := r.rdb.Del(ctx, sandboxKey(id), lockKey(id)).Err(); err != nil {
-		log.Printf("mysql repo: redis cleanup for task %s: %v", id, err)
+		logger.Default().Warn("mysql repo: redis cleanup failed", "task_id", id, "err", err)
 	}
 	return nil
 }
@@ -170,7 +171,7 @@ func (o *mysqlTaskOps) persistRunning(sandboxID, proxyBaseURL string, proxyHeade
 	if err := o.db.WithContext(ctx).Model(&db.Task{}).
 		Where("id = ?", o.lock.taskID).
 		Update("state", int(StateRunning)).Error; err != nil {
-		log.Printf("mysql: persist running for task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("mysql: persist running", "task_id", o.lock.taskID, "err", err)
 		return
 	}
 	key := sandboxKey(o.lock.taskID)
@@ -182,7 +183,7 @@ func (o *mysqlTaskOps) persistRunning(sandboxID, proxyBaseURL string, proxyHeade
 	)
 	pipe.Expire(ctx, key, sandboxTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
-		log.Printf("redis: persist sandbox for task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("redis: persist sandbox", "task_id", o.lock.taskID, "err", err)
 	}
 }
 
@@ -191,7 +192,7 @@ func (o *mysqlTaskOps) persistProvisioning() {
 	if err := o.db.WithContext(ctx).Model(&db.Task{}).
 		Where("id = ?", o.lock.taskID).
 		Update("state", int(StateProvisioning)).Error; err != nil {
-		log.Printf("mysql: persist provisioning for task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("mysql: persist provisioning", "task_id", o.lock.taskID, "err", err)
 	}
 }
 
@@ -200,7 +201,7 @@ func (o *mysqlTaskOps) persistError() {
 	if err := o.db.WithContext(ctx).Model(&db.Task{}).
 		Where("id = ?", o.lock.taskID).
 		Update("state", int(StateError)).Error; err != nil {
-		log.Printf("mysql: persist error for task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("mysql: persist error state", "task_id", o.lock.taskID, "err", err)
 	}
 }
 
@@ -212,7 +213,7 @@ func (o *mysqlTaskOps) persistSessionID(sessionID string) bool {
 		Where("id = ? AND session_id = ''", o.lock.taskID).
 		Update("session_id", sessionID)
 	if result.Error != nil {
-		log.Printf("mysql: persist session_id for task %s: %v", o.lock.taskID, result.Error)
+		logger.Default().Error("mysql: persist session_id", "task_id", o.lock.taskID, "err", result.Error)
 		return false
 	}
 	return result.RowsAffected == 1
@@ -310,7 +311,7 @@ func (o *mysqlTaskOps) persistTitle(title string) {
 	if err := o.db.WithContext(ctx).Model(&db.Task{}).
 		Where("id = ?", o.lock.taskID).
 		Update("title", title).Error; err != nil {
-		log.Printf("mysql: persist title for task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("mysql: persist title", "task_id", o.lock.taskID, "err", err)
 	}
 }
 
@@ -325,6 +326,6 @@ func (o *mysqlTaskOps) resetForReprovisioning() {
 		}
 		return o.rdb.Del(ctx, sandboxKey(o.lock.taskID)).Err()
 	}); err != nil {
-		log.Printf("mysql: reset for reprovisioning task %s: %v", o.lock.taskID, err)
+		logger.Default().Error("mysql: reset for reprovisioning", "task_id", o.lock.taskID, "err", err)
 	}
 }

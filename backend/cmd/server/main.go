@@ -9,8 +9,8 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/your-org/platform-backend/internal/api"
@@ -30,7 +30,8 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		log.Fatalf("loading config: %v", err)
+		logger.Default().Error("loading config", "err", err)
+		os.Exit(1)
 	}
 
 	logger.Init(logger.Config{Level: cfg.Log.Level, Format: cfg.Log.Format})
@@ -64,10 +65,11 @@ func main() {
 	if cfg.OrangeFS.Endpoint != "" {
 		c, err := storage.New(cfg.OrangeFS.Endpoint, cfg.OrangeFS.Volume, cfg.OrangeFS.AccessKey, cfg.OrangeFS.SecretKey)
 		if err != nil {
-			log.Fatalf("creating OFS client: %v", err)
+			logger.Default().Error("creating OFS client", "err", err)
+			os.Exit(1)
 		}
 		ofsClient = c
-		log.Printf("OFS client configured: endpoint=%s volume=%s", cfg.OrangeFS.Endpoint, cfg.OrangeFS.Volume)
+		logger.Default().Info("OFS client configured", "endpoint", cfg.OrangeFS.Endpoint, "volume", cfg.OrangeFS.Volume)
 	}
 
 	var repo task.Repository
@@ -75,52 +77,61 @@ func main() {
 	if cfg.Redis.URL != "" {
 		opt, err := redis.ParseURL(cfg.Redis.URL)
 		if err != nil {
-			log.Fatalf("parse redis URL: %v", err)
+			logger.Default().Error("parse redis URL", "err", err)
+			os.Exit(1)
 		}
 		rdb = redis.NewClient(opt)
 		if err := rdb.Ping(context.Background()).Err(); err != nil {
-			log.Fatalf("redis ping: %v", err)
+			logger.Default().Error("redis ping failed", "err", err)
+			os.Exit(1)
 		}
-		log.Printf("Redis connected at %s", cfg.Redis.URL)
+		logger.Default().Info("Redis connected", "url", cfg.Redis.URL)
 	}
 
 	if cfg.MySQL.DSN == "" {
-		log.Fatalf("mysql.dsn is required")
+		logger.Default().Error("mysql.dsn is required")
+		os.Exit(1)
 	}
 	if cfg.Auth.SecretKey == "" {
-		log.Fatalf("auth.secret_key must be set")
+		logger.Default().Error("auth.secret_key must be set")
+		os.Exit(1)
 	}
 	if cfg.Auth.TokenTTLSeconds <= 0 {
-		log.Fatalf("auth.token_ttl_seconds must be > 0")
+		logger.Default().Error("auth.token_ttl_seconds must be > 0")
+		os.Exit(1)
 	}
 	gormDB, err := db.Open(cfg.MySQL.DSN)
 	if err != nil {
-		log.Fatalf("open mysql: %v", err)
+		logger.Default().Error("open mysql", "err", err)
+		os.Exit(1)
 	}
-	log.Printf("MySQL connected")
+	logger.Default().Info("MySQL connected")
 
 	if rdb == nil {
-		log.Fatalf("redis.url is required: Redis holds ephemeral sandbox mappings and distributed locks")
+		logger.Default().Error("redis.url is required", "reason", "Redis holds ephemeral sandbox mappings and distributed locks")
+		os.Exit(1)
 	}
 	repo = task.NewMySQLRepository(gormDB, rdb)
-	log.Printf("task store: MySQL + Redis")
+	logger.Default().Info("task store: MySQL + Redis")
 
 	var oidcSvc *oidcpkg.Service
 	if cfg.OIDC.ClientID != "" && cfg.OIDC.DiscoveryURL != "" {
 		if cfg.Auth.OIDCStateSecret == "" {
-			log.Fatalf("auth.oidc_state_secret must be set when OIDC is enabled")
+			logger.Default().Error("auth.oidc_state_secret must be set when OIDC is enabled")
+			os.Exit(1)
 		}
 		if cfg.Auth.StateTTLSeconds <= 0 {
-			log.Fatalf("auth.state_ttl_seconds must be > 0 when OIDC is enabled")
+			logger.Default().Error("auth.state_ttl_seconds must be > 0 when OIDC is enabled")
+			os.Exit(1)
 		}
 		oidcSvc = oidcpkg.New(cfg.OIDC)
-		log.Printf("OIDC enabled: discovery=%s", cfg.OIDC.DiscoveryURL)
+		logger.Default().Info("OIDC enabled", "discovery_url", cfg.OIDC.DiscoveryURL)
 	}
 
 	var ssoSvc *ssopkg.Service
 	if cfg.SSO.AppID != "" {
 		ssoSvc = ssopkg.New(cfg.SSO)
-		log.Printf("SSO enabled: base=%s", cfg.SSO.BaseURL)
+		logger.Default().Info("SSO enabled", "base_url", cfg.SSO.BaseURL)
 	}
 
 	mgr := sandbox.NewManager(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey, baseEnv, cfg.Sandbox.Image, platform, cfg.Sandbox.MemoryLimit, cfg.Sandbox.CPULimit)
@@ -144,8 +155,9 @@ func main() {
 		SSOService:  ssoSvc,
 	})
 
-	log.Printf("listening on :%s", cfg.Server.Port)
+	logger.Default().Info("listening", "addr", ":"+cfg.Server.Port)
 	if err := http.ListenAndServe(":"+cfg.Server.Port, router); err != nil {
-		log.Fatal(err)
+		logger.Default().Error("server failed", "err", err)
+		os.Exit(1)
 	}
 }

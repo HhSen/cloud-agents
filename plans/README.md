@@ -2,14 +2,18 @@
 
 New product platform built on top of OpenSandbox. First feature: chat with a Claude agent running inside a sandbox.
 
-## Files
+## Active
 
 - [overview.md](./overview.md) — Architecture, flow, repo layout, shared API contract
-- [backend.md](./backend.md) — Go backend: step-by-step with OpenSandbox SDK context
 - [frontend.md](./frontend.md) — Vite+React+shadcn frontend: step-by-step
+- [frontend-resources.md](./frontend-resources.md) — Resources page (skills + MCP management UI)
 
-## Implementation Order
+## Archived (implemented)
 
-1. Backend first (follow backend.md)
-2. Frontend second (follow frontend.md)
-3. Smoke test end-to-end (see overview.md → Verification)
+See [archived/](./archived/) for completed plans:
+- `gin-migration.md` — net/http → Gin migration
+- `backend.md` — Go backend reference
+- `redis-task-store.md` — Redis task store (superseded by MySQL+Redis split)
+- `sso-integration.md` — SSO/OIDC authentication
+- `history-replay.md` — History replay API
+- `resource-mapping.md` — MCP/skill resource injection

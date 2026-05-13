@@ -188,10 +188,11 @@ Injection failures are **non-fatal**: a log line is emitted and provisioning con
 
 For each active `skill` record:
 
-1. Fetch content from OFS: `GET {ofs_path}SKILL.md`
-2. Write to sandbox via execd: `PUT {cwd}/.claude/skills/{name}/SKILL.md`
+1. For each skill: create `{taskCWD}/.claude/skills/{name}/` via execd `POST /directories` (mkdir -p semantics — `.claude/`, `.claude/skills/`, and `{name}/` are all created in one call if missing).
+2. Fetch content from OFS: `GET {ofs_path}SKILL.md`
+3. Write to sandbox via execd: `PUT {taskCWD}/.claude/skills/{name}/SKILL.md`
 
-The destination path is `{taskCWD}/.claude/skills/{name}/SKILL.md`, which Claude Code discovers automatically with `setting_sources=["project"]`.
+No workspace directories are pre-created. `POST /directories` with body `{"/workspace/{username}/{taskID}/.claude/skills/{name}": {"mode": 755}}` creates the full path atomically. Claude Code discovers skills at `{taskCWD}/.claude/skills/{name}/SKILL.md` automatically with `setting_sources=["project"]`.
 
 ### MCP injection
 
@@ -209,15 +210,23 @@ Written to `{taskCWD}/.mcp.json` via execd. Claude Code reads this file to regis
 
 ### File write protocol
 
-`writeFile(ctx, sandboxID, absPath, content)` sends a single HTTP PUT to the execd file API inside the sandbox:
+`writeFile(ctx, sandboxID, absPath, content)` sends a multipart `POST` to the execd upload API inside the sandbox:
 
 ```
-PUT {serverURL}/sandboxes/{sandboxID}/proxy/44772/files/{relPath}
+POST {serverURL}/sandboxes/{sandboxID}/proxy/44772/files/upload
 X-OPEN-SANDBOX-API-KEY: {apiKey}
-Content-Type: application/octet-stream
+Content-Type: multipart/form-data; boundary=...
+
+--boundary
+Content-Disposition: form-data; name="metadata"
+{"path":"{absPath}","mode":755}
+--boundary
+Content-Disposition: form-data; name="file"; filename="{basename}"
+<binary content>
+--boundary--
 ```
 
-`relPath` is `absPath` with the leading `/` stripped. The `serverURL` is the OpenSandbox server URL configured on the `Manager`.
+The `serverURL` is the OpenSandbox server URL configured on the `Manager`. The file path is embedded in the `metadata` JSON part, not in the URL.
 
 ---
 

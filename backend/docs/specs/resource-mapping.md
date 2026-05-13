@@ -137,6 +137,6 @@ The OFS spec (`ofsspec.md`) describes the file layout. The mapping here determin
 - OFS S3 namespace for a user: `{username}/`
 - Session history parts: `{username}/history/-workspace-{username}-{task_id}/{session_id}/part-*.ndjson`
 - Session process record: `{username}/.claude/sessions/{pid}.json`
-- Agent workspace (FUSE only, not S3-accessible from backend): `/workspace/{username}/{task_id}/`
+- Agent workspace (FUSE only, not S3-accessible from backend): OFS subpath `{username}/workspaces/{task_id}` → `/workspace/{username}/{task_id}/` inside container
 
 The `username` + `task_id` pair is the join key between the backend's task record, the sandbox FUSE workspace, and the OFS S3 session history.

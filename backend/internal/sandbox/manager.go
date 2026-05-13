@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
+	"mime/multipart"
 	"net/http"
-	"strings"
+	"path"
 	"time"
 
 	"github.com/your-org/platform-backend/internal/db"
@@ -117,7 +118,7 @@ func (m *Manager) ProvisionForTask(ctx context.Context, t *task.Task) error {
 	}
 
 	sandboxID := info.ID
-	log.Printf("sandbox %s created for task %s, waiting for Running state", sandboxID, t.ID)
+	slog.InfoContext(ctx, "sandbox created, waiting for Running", "sandboxID", sandboxID, "taskID", t.ID)
 
 	pollCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
@@ -161,12 +162,12 @@ func (m *Manager) ProvisionForTask(ctx context.Context, t *task.Task) error {
 
 	if m.kindsRepo != nil && m.ofsReader != nil && t.UserID != 0 {
 		if err := m.injectResources(ctx, t.UserID, t.Username, t.ID, sandboxID); err != nil {
-			log.Printf("resource injection failed for task %s (continuing): %v", t.ID, err)
+			slog.WarnContext(ctx, "resource injection failed (continuing)", "taskID", t.ID, "error", err)
 		}
 	}
 
 	t.SetRunning(sandboxID, proxyBaseURL, proxyHeaders)
-	log.Printf("sandbox %s ready — proxy URL: %s", sandboxID, proxyBaseURL)
+	slog.InfoContext(ctx, "sandbox ready", "sandboxID", sandboxID, "proxyURL", proxyBaseURL)
 	return nil
 }
 
@@ -186,6 +187,7 @@ func (m *Manager) injectResources(ctx context.Context, userID uint, username, ta
 	if len(kinds) == 0 {
 		return nil
 	}
+	slog.InfoContext(ctx, "injecting resources", "count", len(kinds), "userID", userID, "sandboxID", sandboxID)
 
 	taskCWD := fmt.Sprintf("/workspace/%s/%s", username, taskID)
 
@@ -194,19 +196,25 @@ func (m *Manager) injectResources(ctx context.Context, userID uint, username, ta
 	}
 	mcp := mcpConfig{MCPServers: make(map[string]json.RawMessage)}
 
+	skillsDir := taskCWD + "/.claude/skills"
+
 	for _, k := range kinds {
 		switch k.Kind {
 		case "skill":
+			skillNameDir := skillsDir + "/" + k.Name
+			if err := m.makeDirAll(ctx, sandboxID, skillNameDir); err != nil {
+				return fmt.Errorf("create skill dir %q: %w", k.Name, err)
+			}
 			s3Key := k.OFSPath + "SKILL.md"
 			content, err := m.ofsReader.GetObjectBytes(ctx, s3Key)
 			if err != nil {
 				return fmt.Errorf("fetch skill %q from OFS: %w", k.Name, err)
 			}
-			skillPath := fmt.Sprintf("%s/.claude/skills/%s/SKILL.md", taskCWD, k.Name)
+			skillPath := skillNameDir + "/SKILL.md"
 			if err := m.writeFile(ctx, sandboxID, skillPath, content); err != nil {
 				return fmt.Errorf("write skill %q to sandbox: %w", k.Name, err)
 			}
-			log.Printf("injected skill %q into sandbox %s", k.Name, sandboxID)
+			slog.InfoContext(ctx, "injected skill", "name", k.Name, "sandboxID", sandboxID)
 		case "mcp":
 			mcp.MCPServers[k.Name] = k.Meta
 		}
@@ -221,33 +229,93 @@ func (m *Manager) injectResources(ctx context.Context, userID uint, username, ta
 		if err := m.writeFile(ctx, sandboxID, mcpPath, data); err != nil {
 			return fmt.Errorf("write .mcp.json to sandbox: %w", err)
 		}
-		log.Printf("injected %d MCP server(s) into sandbox %s", len(mcp.MCPServers), sandboxID)
+		slog.InfoContext(ctx, "injected MCP servers", "count", len(mcp.MCPServers), "sandboxID", sandboxID)
 	}
 
 	return nil
 }
 
-// writeFile writes content to absPath inside the sandbox via the execd proxy.
+// fileMetadata is the per-file metadata entry for the POST /files/upload body.
+type fileMetadata struct {
+	Path string `json:"path"`
+	Mode int    `json:"mode"`
+}
+
+// writeFile uploads content to absPath inside the sandbox via the execd POST /files/upload API.
 // absPath is an absolute container path (e.g. /workspace/alice/task1/.mcp.json).
 func (m *Manager) writeFile(ctx context.Context, sandboxID, absPath string, content []byte) error {
-	relPath := strings.TrimPrefix(absPath, "/")
-	url := fmt.Sprintf("%s/sandboxes/%s/proxy/44772/files/%s", m.serverURL, sandboxID, relPath)
+	apiURL := fmt.Sprintf("%s/sandboxes/%s/proxy/44772/files/upload", m.serverURL, sandboxID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(content))
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+
+	metaField, err := mw.CreateFormFile("metadata", "metadata.json")
 	if err != nil {
-		return fmt.Errorf("build execd request: %w", err)
+		return fmt.Errorf("build execd upload metadata field: %w", err)
+	}
+	if err := json.NewEncoder(metaField).Encode(fileMetadata{Path: absPath, Mode: 755}); err != nil {
+		return fmt.Errorf("encode execd upload metadata: %w", err)
+	}
+
+	fileField, err := mw.CreateFormFile("file", path.Base(absPath))
+	if err != nil {
+		return fmt.Errorf("build execd upload file field: %w", err)
+	}
+	if _, err := fileField.Write(content); err != nil {
+		return fmt.Errorf("write execd upload file content: %w", err)
+	}
+	mw.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, &buf)
+	if err != nil {
+		return fmt.Errorf("build execd upload request: %w", err)
 	}
 	req.Header.Set("X-OPEN-SANDBOX-API-KEY", m.apiKey)
-	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("execd PUT %s: %w", absPath, err)
+		return fmt.Errorf("execd upload %s: %w", absPath, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("execd PUT %s: status %d: %s", absPath, resp.StatusCode, body)
+		return fmt.Errorf("execd upload %s: status %d: %s", absPath, resp.StatusCode, body)
+	}
+	return nil
+}
+
+// dirPermission is the per-path permission entry for the POST /directories body.
+type dirPermission struct {
+	Mode int `json:"mode"`
+}
+
+// makeDirAll creates absPath and all missing parent directories inside the sandbox
+// via the execd POST /directories API (mkdir -p semantics).
+// absPath is an absolute container path (e.g. /workspace/alice/task1/.claude/skills).
+func (m *Manager) makeDirAll(ctx context.Context, sandboxID, absPath string) error {
+	apiURL := fmt.Sprintf("%s/sandboxes/%s/proxy/44772/directories", m.serverURL, sandboxID)
+
+	payload, err := json.Marshal(map[string]dirPermission{absPath: {Mode: 755}})
+	if err != nil {
+		return fmt.Errorf("marshal mkdir request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build execd mkdir request: %w", err)
+	}
+	req.Header.Set("X-OPEN-SANDBOX-API-KEY", m.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("execd mkdir %s: %w", absPath, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("execd mkdir %s: status %d: %s", absPath, resp.StatusCode, body)
 	}
 	return nil
 }
@@ -282,7 +350,7 @@ func (h *httpHealthChecker) WaitForHealth(ctx context.Context, proxyBaseURL stri
 	pollCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	log.Printf("waiting for agent server health at %s", healthURL)
+	slog.InfoContext(pollCtx, "waiting for agent server health", "url", healthURL)
 
 	for {
 		if pollCtx.Err() != nil {
@@ -295,7 +363,7 @@ func (h *httpHealthChecker) WaitForHealth(ctx context.Context, proxyBaseURL stri
 			if errors.As(err, &statusErr) && (statusErr.code == http.StatusUnauthorized || statusErr.code == http.StatusForbidden) {
 				return err
 			}
-			log.Printf("agent server health check error (retrying): %v", err)
+			slog.WarnContext(pollCtx, "agent server health check error, retrying", "error", err)
 		} else if healthy {
 			return nil
 		}

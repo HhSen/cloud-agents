@@ -637,24 +637,26 @@ func (m *mockSandboxOFSReader) GetObjectBytes(_ context.Context, key string) ([]
 	return nil, fmt.Errorf("not found: %s", key)
 }
 
-// execdCapture records a single execd PUT request.
+// execdCapture records a single execd request.
 type execdCapture struct {
+	method string
 	path   string
 	body   []byte
 	apiKey string
 }
 
-// newExecdServer returns an httptest.Server that records PUT requests and replies with status.
+// newExecdServer returns an httptest.Server that records PUT and POST requests and replies with status.
 func newExecdServer(t *testing.T, status int) (*httptest.Server, *[]execdCapture) {
 	t.Helper()
 	var caps []execdCapture
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut {
-			http.Error(w, "expected PUT", http.StatusMethodNotAllowed)
+		if r.Method != http.MethodPut && r.Method != http.MethodPost {
+			http.Error(w, "expected PUT or POST", http.StatusMethodNotAllowed)
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
 		caps = append(caps, execdCapture{
+			method: r.Method,
 			path:   r.URL.Path,
 			body:   body,
 			apiKey: r.Header.Get("X-OPEN-SANDBOX-API-KEY"),
@@ -700,19 +702,37 @@ func TestInjectResources_Skill(t *testing.T) {
 		t.Fatalf("ProvisionForTask: %v", err)
 	}
 
-	if len(*caps) != 1 {
-		t.Fatalf("expected 1 execd PUT, got %d", len(*caps))
+	// Expect 2 requests: POST /directories for .claude/skills/my-sk/ + PUT skill file.
+	if len(*caps) != 2 {
+		t.Fatalf("expected 2 execd requests (mkdir + skill), got %d", len(*caps))
 	}
-	cap0 := (*caps)[0]
-	wantSuffix := "workspace/alice/" + tsk.ID + "/.claude/skills/my-sk/SKILL.md"
-	if !strings.HasSuffix(cap0.path, wantSuffix) {
-		t.Errorf("execd path = %q, want suffix %q", cap0.path, wantSuffix)
+	mkdir := (*caps)[0]
+	if mkdir.method != http.MethodPost {
+		t.Errorf("mkdir method = %q, want POST", mkdir.method)
 	}
-	if string(cap0.body) != "# My Skill" {
-		t.Errorf("execd body = %q, want '# My Skill'", cap0.body)
+	if !strings.HasSuffix(mkdir.path, "/sandboxes/sb-inj/proxy/44772/directories") {
+		t.Errorf("mkdir path = %q, want .../directories", mkdir.path)
 	}
-	if cap0.apiKey != "test-key" {
-		t.Errorf("X-OPEN-SANDBOX-API-KEY = %q, want test-key", cap0.apiKey)
+	wantDirPath := fmt.Sprintf("/workspace/alice/%s/.claude/skills/my-sk", tsk.ID)
+	if !strings.Contains(string(mkdir.body), wantDirPath) {
+		t.Errorf("mkdir body = %q, want to contain %q", mkdir.body, wantDirPath)
+	}
+	skill := (*caps)[1]
+	if skill.method != http.MethodPost {
+		t.Errorf("skill upload method = %q, want POST", skill.method)
+	}
+	if !strings.HasSuffix(skill.path, "/sandboxes/sb-inj/proxy/44772/files/upload") {
+		t.Errorf("execd skill path = %q, want .../files/upload", skill.path)
+	}
+	wantFilePath := fmt.Sprintf("/workspace/alice/%s/.claude/skills/my-sk/SKILL.md", tsk.ID)
+	if !strings.Contains(string(skill.body), wantFilePath) {
+		t.Errorf("skill upload body = %q, want to contain path %q", skill.body, wantFilePath)
+	}
+	if !strings.Contains(string(skill.body), "# My Skill") {
+		t.Errorf("skill upload body = %q, want to contain content '# My Skill'", skill.body)
+	}
+	if skill.apiKey != "test-key" {
+		t.Errorf("X-OPEN-SANDBOX-API-KEY = %q, want test-key", skill.apiKey)
 	}
 }
 
@@ -733,21 +753,24 @@ func TestInjectResources_MCP(t *testing.T) {
 	}
 
 	if len(*caps) != 1 {
-		t.Fatalf("expected 1 execd PUT for .mcp.json, got %d", len(*caps))
+		t.Fatalf("expected 1 execd POST for .mcp.json, got %d", len(*caps))
 	}
 	cap0 := (*caps)[0]
-	wantSuffix := "workspace/alice/" + tsk.ID + "/.mcp.json"
-	if !strings.HasSuffix(cap0.path, wantSuffix) {
-		t.Errorf("execd path = %q, want suffix %q", cap0.path, wantSuffix)
+	if cap0.method != http.MethodPost {
+		t.Errorf("mcp upload method = %q, want POST", cap0.method)
 	}
-	var mcpCfg struct {
-		MCPServers map[string]json.RawMessage `json:"mcpServers"`
+	if !strings.HasSuffix(cap0.path, "/sandboxes/sb-inj/proxy/44772/files/upload") {
+		t.Errorf("execd path = %q, want .../files/upload", cap0.path)
 	}
-	if err := json.Unmarshal(cap0.body, &mcpCfg); err != nil {
-		t.Fatalf("mcp.json body not valid JSON: %v", err)
+	wantMCPPath := fmt.Sprintf("/workspace/alice/%s/.mcp.json", tsk.ID)
+	if !strings.Contains(string(cap0.body), wantMCPPath) {
+		t.Errorf("mcp upload body = %q, want to contain path %q", cap0.body, wantMCPPath)
 	}
-	if _, ok := mcpCfg.MCPServers["gh"]; !ok {
-		t.Error("expected 'gh' in mcpServers")
+	if !strings.Contains(string(cap0.body), `"mcpServers"`) {
+		t.Errorf("mcp upload body = %q, want to contain mcpServers JSON", cap0.body)
+	}
+	if !strings.Contains(string(cap0.body), `"gh"`) {
+		t.Errorf("mcp upload body = %q, want to contain 'gh' server entry", cap0.body)
 	}
 }
 
@@ -770,9 +793,9 @@ func TestInjectResources_Mixed(t *testing.T) {
 		t.Fatalf("ProvisionForTask: %v", err)
 	}
 
-	// Expect 2 execd PUTs: skill file + .mcp.json.
-	if len(*caps) != 2 {
-		t.Fatalf("expected 2 execd PUTs (skill + mcp.json), got %d: %+v", len(*caps), *caps)
+	// Expect 3 requests: POST /directories (mkdir -p) + PUT skill file + PUT .mcp.json.
+	if len(*caps) != 3 {
+		t.Fatalf("expected 3 execd requests (mkdir + skill + mcp.json), got %d: %+v", len(*caps), *caps)
 	}
 }
 
@@ -882,8 +905,10 @@ func TestInjectResources_ExecdError_NonFatal(t *testing.T) {
 
 func TestWriteFile_PathConstruction(t *testing.T) {
 	var capturedPath string
+	var capturedBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
+		capturedBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
@@ -893,9 +918,12 @@ func TestWriteFile_PathConstruction(t *testing.T) {
 		t.Fatalf("writeFile: %v", err)
 	}
 
-	want := "/sandboxes/sb-x/proxy/44772/files/workspace/alice/task1/.mcp.json"
-	if capturedPath != want {
-		t.Errorf("path = %q, want %q", capturedPath, want)
+	wantPath := "/sandboxes/sb-x/proxy/44772/files/upload"
+	if capturedPath != wantPath {
+		t.Errorf("path = %q, want %q", capturedPath, wantPath)
+	}
+	if !strings.Contains(string(capturedBody), "/workspace/alice/task1/.mcp.json") {
+		t.Errorf("body = %q, want to contain target path", capturedBody)
 	}
 }
 
@@ -928,8 +956,8 @@ func TestWriteFile_ContentType(t *testing.T) {
 	if err := mgr.writeFile(context.Background(), "sb1", "/workspace/f.txt", []byte("x")); err != nil {
 		t.Fatalf("writeFile: %v", err)
 	}
-	if capturedCT != "application/octet-stream" {
-		t.Errorf("Content-Type = %q, want application/octet-stream", capturedCT)
+	if !strings.HasPrefix(capturedCT, "multipart/form-data") {
+		t.Errorf("Content-Type = %q, want multipart/form-data", capturedCT)
 	}
 }
 

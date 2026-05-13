@@ -3,8 +3,9 @@ package task
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
+
+	"github.com/your-org/platform-backend/pkg/logger"
 	"time"
 
 	"github.com/go-redis/redis/v8"
@@ -35,7 +36,7 @@ func (l *redisLock) holder() string {
 func (l *redisLock) release(h string) {
 	ctx := context.Background()
 	if err := releaseLockScript.Run(ctx, l.rdb, []string{lockKey(l.taskID)}, h).Err(); err != nil {
-		log.Printf("redis: release lock for task %s: %v", l.taskID, err)
+		logger.Default().Error("redis: release lock", "task_id", l.taskID, "err", err)
 	}
 }
 

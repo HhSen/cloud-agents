@@ -6,7 +6,7 @@ OrangeFS (OFS) is an S3-compatible cloud file store that persists session histor
 
 | Access path | Who uses it | What is stored |
 |---|---|---|
-| **FUSE mount** (`orangefs posix mount`) | Sandbox entrypoint | Agent workspace files at `/workspace/{username}/{task_id}/` |
+| **FUSE mount** (`orangefs posix mount`) | Sandbox entrypoint | Agent workspace files; OFS subpath `{username}/workspaces/{task_id}` → mounted at `/workspace/{username}/{task_id}/` |
 | **S3 API** (`ORANGEFS_ENDPOINT`) | Agent server (write), backend (read) | Session history NDJSON parts and process records |
 
 **Key identity mapping:**
@@ -64,7 +64,7 @@ The backend never mounts OFS itself; FUSE mounting is handled by the entrypoint 
 | `USERNAME` | `task.Username` | Sets workspace path and S3 key namespace |
 | `TASK_ID` | `task.ID` | Sets workspace subpath; encoded into S3 history key |
 
-The entrypoint mounts:
+The entrypoint mounts the OFS subpath `{USERNAME}/workspaces/{TASK_ID}` at:
 ```
 /workspace/{USERNAME}/{TASK_ID}/    ← agent workspace files (FUSE)
 ```
@@ -77,6 +77,9 @@ Session history and process records are stored in OFS via the S3 API. The top-le
 
 ```
 {username}/                                     # top-level per-user prefix
+├── workspaces/
+│   └── {task_id}/                              # FUSE-mounted at /workspace/{username}/{task_id}/
+│       └── ...                                 # agent project files (not S3-accessible from backend)
 ├── history/
 │   └── {encoded_cwd}/                          # CWD path with '/' replaced by '-'
 │       └── {session_id}/                       # agent session UUID

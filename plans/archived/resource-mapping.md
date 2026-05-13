@@ -54,7 +54,7 @@ Differences from your draft:
 ```
 
 - Resources live under `{username}/resources/` — separate from the per-task workspace
-  mount (`{username}/{task_id}/`).
+  mount (OFS subpath `{username}/workspaces/{task_id}`).
 - `ofs_path` in the `kinds` row stores the key prefix, e.g.
   `alice/resources/skills/my-search/` or `alice/resources/mcp/github.json`.
 

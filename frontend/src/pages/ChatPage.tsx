@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeft } from 'lucide-react'
+import { PanelLeft, Blocks } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { ChatInput } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { HistorySidepanel } from '@/components/HistorySidepanel'
@@ -13,6 +14,7 @@ import { buildMessages } from '@/lib/chainBuilder'
 import { cn } from '@/lib/utils'
 
 export function ChatPage() {
+  const navigate = useNavigate()
   const username = getAuthUsername() ?? ''
   const { messages, taskId, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask } =
     useChat(username)
@@ -76,7 +78,16 @@ export function ChatPage() {
               </button>
               <span className="font-semibold text-sm">Lucas</span>
             </div>
-            <StatusBadge state={sandboxState} />
+            <div className="flex items-center gap-1">
+                <button
+                  onClick={() => navigate('/resources')}
+                  className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
+                  title="Manage resources"
+                >
+                  <Blocks size={16} />
+                </button>
+                <StatusBadge state={sandboxState} />
+              </div>
           </header>
 
           <ScrollArea className="flex-1">

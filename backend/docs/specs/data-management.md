@@ -132,7 +132,7 @@ KIND {
 
 - **Cardinality:** one-to-zero-or-one *at any point in time*; one-to-many *over the task's lifetime*
 - **Binding:** `sandbox_id` lives in Redis under `sandbox:{task_id}`, not in MySQL. It is absent when no sandbox is running.
-- **Stability:** `task_id` is injected into every sandbox as `TASK_ID`. The OFS FUSE mount uses it as the workspace subpath (`{username}/{task_id}`) so workspace files survive sandbox recreation.
+- **Stability:** `task_id` is injected into every sandbox as `TASK_ID`. The OFS FUSE mount uses it as the workspace subpath (`{username}/workspaces/{task_id}`) so workspace files survive sandbox recreation.
 
 ### Task → Session
 

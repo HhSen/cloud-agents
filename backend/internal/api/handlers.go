@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -100,7 +99,7 @@ func PasswordLoginHandler(gormDB *gorm.DB, authCfg config.AuthConfig) gin.Handle
 		}
 		user, err := db.FindByCredentials(gormDB, body.Username, body.Password)
 		if err != nil {
-			log.Printf("password login db error: %v", err)
+			logger.Default().Error("password login db error", "err", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
@@ -135,7 +134,7 @@ func RegisterHandler(gormDB *gorm.DB, authCfg config.AuthConfig) gin.HandlerFunc
 		}
 		user, err := db.CreateWithPassword(gormDB, body.Username, body.Email, body.Password)
 		if err != nil {
-			log.Printf("register user: %v", err)
+			logger.Default().Error("register user", "err", err)
 			c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
 			return
 		}
@@ -189,7 +188,7 @@ func (h *Handler) CreateTask(c *gin.Context) {
 
 	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env)
 	if err != nil {
-		log.Printf("create task: %v", err)
+		logger.Default().Error("create task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to create task")
 		return
 	}
@@ -217,9 +216,10 @@ func (h *Handler) CreateTask(c *gin.Context) {
 // @Router       /api/tasks/{id}/messages [post]
 func (h *Handler) SendMessage(c *gin.Context) {
 	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
 	t, err := h.store.Get(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("get task %s: %v", id, err)
+		log.Error("get task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to get task")
 		return
 	}
@@ -244,15 +244,15 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		defer cancel()
 		alive, err := h.manager.IsSandboxAlive(aliveCtx, sandboxID)
 		if err != nil {
-			log.Printf("sandbox status check failed for task %s sandbox %s: %v", id, sandboxID, err)
+			log.Error("sandbox status check failed", "sandbox_id", sandboxID, "err", err)
 			return true, err // treat check error as alive — proxy will surface real errors
 		}
 		if !alive {
-			log.Printf("sandbox %s expired for task %s, re-provisioning", sandboxID, id)
+			log.Info("sandbox expired, re-provisioning", "sandbox_id", sandboxID)
 		}
 		return alive, nil
 	}); err != nil {
-		log.Printf("sandbox liveness check error for task %s, proceeding: %v", id, err)
+		log.Warn("sandbox liveness check error, proceeding", "err", err)
 	}
 
 	if t.GetState() == task.StateNew {
@@ -266,7 +266,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	})
 	if err != nil {
 		t.SetError()
-		log.Printf("provision failed for task %s: %v", id, err)
+		log.Error("provision failed", "err", err)
 		c.String(http.StatusBadGateway, "failed to provision sandbox")
 		return
 	}
@@ -275,7 +275,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		if c.Request.Context().Err() != nil {
 			return // client disconnected
 		}
-		log.Printf("stream error for task %s: %v", id, err)
+		log.Error("stream error", "err", err)
 	}
 }
 
@@ -292,9 +292,10 @@ func (h *Handler) SendMessage(c *gin.Context) {
 // @Router       /api/tasks/{id} [get]
 func (h *Handler) GetTask(c *gin.Context) {
 	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
 	t, err := h.store.Get(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("get task %s: %v", id, err)
+		log.Error("get task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to get task")
 		return
 	}
@@ -329,9 +330,10 @@ func (h *Handler) GetTask(c *gin.Context) {
 // @Router       /api/tasks/{id} [delete]
 func (h *Handler) DeleteTask(c *gin.Context) {
 	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
 	t, err := h.store.Get(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("get task %s: %v", id, err)
+		log.Error("get task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to get task")
 		return
 	}
@@ -345,14 +347,14 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 
 	sandboxID := t.GetSandboxID()
 	if err := h.store.Delete(c.Request.Context(), id); err != nil {
-		log.Printf("delete task %s: %v", id, err)
+		log.Error("delete task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to delete task")
 		return
 	}
 
 	if sandboxID != "" {
 		if err := h.manager.DeleteSandbox(context.Background(), sandboxID); err != nil {
-			log.Printf("delete sandbox %s: %v", sandboxID, err)
+			log.Warn("delete sandbox failed", "sandbox_id", sandboxID, "err", err)
 		}
 	}
 
@@ -438,9 +440,10 @@ func (h *Handler) GetTaskHistory(c *gin.Context) {
 // @Router       /api/tasks/{id}/permissions [post]
 func (h *Handler) RespondToPermission(c *gin.Context) {
 	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
 	t, err := h.store.Get(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("get task %s: %v", id, err)
+		log.Error("get task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to get task")
 		return
 	}
@@ -456,7 +459,7 @@ func (h *Handler) RespondToPermission(c *gin.Context) {
 	}
 
 	if err := h.proxy.RespondToPermission(c.Request.Context(), t, body.Decision); err != nil {
-		log.Printf("respond to permission for task %s: %v", id, err)
+		log.Error("respond to permission", "err", err)
 		c.String(http.StatusBadGateway, "failed to respond to permission")
 		return
 	}
@@ -480,9 +483,10 @@ func (h *Handler) RespondToPermission(c *gin.Context) {
 // @Router       /api/tasks/{id}/questions [post]
 func (h *Handler) RespondToQuestion(c *gin.Context) {
 	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
 	t, err := h.store.Get(c.Request.Context(), id)
 	if err != nil {
-		log.Printf("get task %s: %v", id, err)
+		log.Error("get task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to get task")
 		return
 	}
@@ -498,7 +502,7 @@ func (h *Handler) RespondToQuestion(c *gin.Context) {
 	}
 
 	if err := h.proxy.RespondToQuestion(c.Request.Context(), t, body.Answers); err != nil {
-		log.Printf("respond to question for task %s: %v", id, err)
+		log.Error("respond to question", "err", err)
 		c.String(http.StatusBadGateway, "failed to respond to question")
 		return
 	}
@@ -523,7 +527,7 @@ func (h *Handler) ListTasks(c *gin.Context) {
 	}
 	tasks, err := h.store.List(c.Request.Context(), u.UserName)
 	if err != nil {
-		log.Printf("list tasks for %s: %v", u.UserName, err)
+		logger.Default().Error("list tasks", "username", u.UserName, "err", err)
 		c.String(http.StatusInternalServerError, "failed to list tasks")
 		return
 	}
@@ -608,14 +612,14 @@ func (h *Handler) CreateResource(c *gin.Context) {
 	}
 
 	if err := h.ofsWriter.PutObject(c.Request.Context(), ofsKey, ofsContent); err != nil {
-		log.Printf("put resource to OFS %s: %v", ofsKey, err)
+		logger.Default().Error("put resource to OFS", "key", ofsKey, "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store resource"})
 		return
 	}
 
 	rec, err := h.kindsRepo.Create(c.Request.Context(), u.ID, body.Kind, body.Name, ofsPath, meta)
 	if err != nil {
-		log.Printf("create kind record: %v", err)
+		logger.Default().Error("create kind record", "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create resource"})
 		return
 	}
@@ -637,7 +641,7 @@ func (h *Handler) ListResources(c *gin.Context) {
 
 	records, err := h.kindsRepo.List(c.Request.Context(), u.ID)
 	if err != nil {
-		log.Printf("list resources for user %d: %v", u.ID, err)
+		logger.Default().Error("list resources", "user_id", u.ID, "err", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list resources"})
 		return
 	}
@@ -703,7 +707,7 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 		}
 
 		if err := h.ofsWriter.PutObject(c.Request.Context(), ofsKey, ofsContent); err != nil {
-			log.Printf("update resource in OFS %s: %v", ofsKey, err)
+			logger.Default().Error("update resource in OFS", "key", ofsKey, "err", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update resource"})
 			return
 		}

@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
+
+	"github.com/your-org/platform-backend/pkg/logger"
 	"strings"
 	"time"
 
@@ -143,7 +144,7 @@ func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, 
 			}
 			if json.Unmarshal([]byte(dataStr), &payload) == nil && payload.SessionID != "" {
 				t.SetSessionID(payload.SessionID)
-				log.Printf("task %s: session ID = %s", t.ID, payload.SessionID)
+				logger.Default().Info("session ID established", "task_id", t.ID, "session_id", payload.SessionID)
 			}
 			fmt.Fprintf(w, "%s\n", line)
 		default:
@@ -186,7 +187,7 @@ type sessionMetaResponse struct {
 func (p *Proxy) fetchSessionTitle(ctx context.Context, proxyBaseURL string, proxyHeaders map[string]string, sessionID, fallback string) string {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxyBaseURL+"/sessions/"+sessionID, nil)
 	if err != nil {
-		log.Printf("fetchSessionTitle: build request: %v", err)
+		logger.Default().Error("fetchSessionTitle: build request", "err", err)
 		return fallback
 	}
 	for k, v := range proxyHeaders {
@@ -195,19 +196,19 @@ func (p *Proxy) fetchSessionTitle(ctx context.Context, proxyBaseURL string, prox
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		log.Printf("fetchSessionTitle: request: %v", err)
+		logger.Default().Error("fetchSessionTitle: upstream request", "err", err)
 		return fallback
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		log.Printf("fetchSessionTitle: upstream %d for session %s", resp.StatusCode, sessionID)
+		logger.Default().Warn("fetchSessionTitle: upstream error", "status", resp.StatusCode, "session_id", sessionID)
 		return fallback
 	}
 
 	var meta sessionMetaResponse
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		log.Printf("fetchSessionTitle: decode: %v", err)
+		logger.Default().Error("fetchSessionTitle: decode", "err", err)
 		return fallback
 	}
 
