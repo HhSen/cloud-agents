@@ -1,4 +1,4 @@
-import { PenLine } from 'lucide-react'
+import { PenLine, Trash2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { TaskSummary } from '@/api/client'
@@ -8,6 +8,7 @@ interface Props {
   activeTaskId: string | null
   onSelectTask: (id: string) => void
   onNewChat: () => void
+  onDeleteTask: (id: string) => void
 }
 
 function formatDate(dateStr: string): string {
@@ -24,7 +25,7 @@ function formatDate(dateStr: string): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
-export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat }: Props) {
+export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat, onDeleteTask }: Props) {
   return (
     <div className="w-60 flex-shrink-0 flex flex-col border-r border-neutral-200 h-full bg-neutral-50">
       <div className="px-3 py-3 flex items-center justify-between border-b border-neutral-200">
@@ -41,16 +42,16 @@ export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat 
       <ScrollArea className="flex-1">
         <div className="py-1">
           {tasks.map(task => (
-            <button
+            <div
               key={task.id}
-              onClick={() => onSelectTask(task.id)}
               className={cn(
-                'w-full text-left px-3 py-2.5 hover:bg-neutral-100 transition-colors',
+                'group relative w-full text-left px-3 py-2.5 hover:bg-neutral-100 transition-colors cursor-pointer',
                 activeTaskId === task.id && 'bg-neutral-100'
               )}
+              onClick={() => onSelectTask(task.id)}
             >
               <div className={cn(
-                'truncate text-sm text-neutral-700',
+                'truncate text-sm text-neutral-700 pr-5',
                 activeTaskId === task.id && 'font-medium text-neutral-900'
               )}>
                 {task.title || 'Untitled'}
@@ -58,7 +59,19 @@ export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat 
               <div className="text-xs text-neutral-400 mt-0.5">
                 {formatDate(task.updated_at)}
               </div>
-            </button>
+              <button
+                onClick={e => {
+                  e.stopPropagation()
+                  if (window.confirm('Delete this task and all its history? This cannot be undone.')) {
+                    onDeleteTask(task.id)
+                  }
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-neutral-200 text-neutral-400 hover:text-red-500 transition-all"
+                title="Delete task"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))}
 
           {tasks.length === 0 && (

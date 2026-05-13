@@ -38,6 +38,7 @@ type OFSClient interface {
 	// Entries with isMeta:true are excluded.
 	GetHistory(ctx context.Context, key string) ([]json.RawMessage, error)
 	GetSessionMeta(ctx context.Context, username, taskID string) (*SessionMeta, error)
+	DeleteHistory(ctx context.Context, username, taskID string) error
 }
 
 // Client is a concrete OFSClient backed by an S3-compatible endpoint.
@@ -226,6 +227,69 @@ func (c *Client) readPart(ctx context.Context, key string) ([]json.RawMessage, e
 		entries = append(entries, raw)
 	}
 	return entries, scanner.Err()
+}
+
+// DeleteHistory removes all session history and metadata files for a task from OFS.
+// It deletes every object under "{username}/history/{encoded_cwd}/" and any
+// session files under "{username}/.claude/sessions/" whose CWD matches the task workspace.
+// Errors from the session-metadata scan are ignored (best-effort).
+func (c *Client) DeleteHistory(ctx context.Context, username, taskID string) error {
+	cwd := fmt.Sprintf("/workspace/%s/%s", username, taskID)
+	historyPrefix := fmt.Sprintf("%s/history/%s/", username, encodeCWD(cwd))
+
+	var keys []string
+
+	paginator := s3.NewListObjectsV2Paginator(c.s3, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.volume),
+		Prefix: aws.String(historyPrefix),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("listing history objects under %q: %w", historyPrefix, err)
+		}
+		for _, obj := range page.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+	}
+
+	// best-effort: find session metadata files whose CWD matches this task
+	sessionPrefix := fmt.Sprintf("%s/.claude/sessions/", username)
+	sessionPaginator := s3.NewListObjectsV2Paginator(c.s3, &s3.ListObjectsV2Input{
+		Bucket: aws.String(c.volume),
+		Prefix: aws.String(sessionPrefix),
+	})
+	for sessionPaginator.HasMorePages() {
+		page, err := sessionPaginator.NextPage(ctx)
+		if err != nil {
+			break
+		}
+		for _, obj := range page.Contents {
+			key := aws.ToString(obj.Key)
+			data, err := c.GetObjectBytes(ctx, key)
+			if err != nil {
+				continue
+			}
+			var meta SessionMeta
+			if err := json.Unmarshal(data, &meta); err != nil {
+				continue
+			}
+			if meta.CWD == cwd {
+				keys = append(keys, key)
+			}
+		}
+	}
+
+	// OFS requires Content-MD5 on DeleteObjects which the SDK omits, so delete one at a time.
+	for _, key := range keys {
+		if _, err := c.s3.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(c.volume),
+			Key:    aws.String(key),
+		}); err != nil {
+			return fmt.Errorf("deleting object %q: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // GetSessionMeta returns the Claude Code process record for the given task.

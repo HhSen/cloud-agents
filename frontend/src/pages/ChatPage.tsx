@@ -7,7 +7,7 @@ import { HistorySidepanel } from '@/components/HistorySidepanel'
 import { StatusBadge } from '@/components/StatusBadge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChat } from '@/hooks/useChat'
-import { getHistory, listTasks } from '@/api/client'
+import { deleteTask, getHistory, listTasks } from '@/api/client'
 import type { TaskSummary } from '@/api/client'
 import { getAuthUsername } from '@/lib/auth'
 import { buildMessages } from '@/lib/chainBuilder'
@@ -54,6 +54,12 @@ export function ChatPage() {
     newChat()
   }, [newChat])
 
+  const handleDeleteTask = useCallback(async (id: string) => {
+    await deleteTask(id)
+    if (taskId === id) newChat()
+    refreshTasks()
+  }, [taskId, newChat, refreshTasks])
+
   return (
     <div className="flex h-[100dvh]">
       {sidebarOpen && (
@@ -62,6 +68,7 @@ export function ChatPage() {
           activeTaskId={taskId}
           onSelectTask={handleSelectTask}
           onNewChat={handleNewChat}
+          onDeleteTask={handleDeleteTask}
         />
       )}
 
