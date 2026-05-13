@@ -164,6 +164,30 @@ export async function updateResource(id: number, payload: UpdateResourcePayload)
   return res.json() as Promise<Resource>
 }
 
+export async function createSkillFromZip(name: string, file: File): Promise<Resource> {
+  const form = new FormData()
+  form.append('name', name)
+  form.append('file', file)
+  const res = await fetch(`${BASE}/api/resources/zip`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? 'Failed to create skill')
+  }
+  return res.json() as Promise<Resource>
+}
+
+export async function getSkillContent(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/api/resources/${id}/content`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to fetch skill content')
+  return res.text()
+}
+
 export async function deleteResource(id: number): Promise<void> {
   const res = await fetch(`${BASE}/api/resources/${id}`, {
     method: 'DELETE',

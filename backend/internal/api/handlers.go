@@ -1,6 +1,8 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -70,6 +72,11 @@ type ResourceWriter interface {
 	PutObject(ctx context.Context, key string, data []byte) error
 }
 
+// ResourceReader reads files from OFS storage.
+type ResourceReader interface {
+	GetObjectBytes(ctx context.Context, key string) ([]byte, error)
+}
+
 // WorkspaceReader reads workspace files from OFS backing storage.
 type WorkspaceReader interface {
 	ListWorkspace(ctx context.Context, username, taskID, subpath string) ([]storage.WorkspaceEntry, error)
@@ -97,6 +104,7 @@ type Handler struct {
 	fileStore       FileStore
 	kindsRepo       db.KindsRepository // optional; nil disables resource API
 	ofsWriter       ResourceWriter     // optional; nil disables resource content upload
+	ofsReader       ResourceReader     // optional; nil disables resource content read
 	workspaceReader WorkspaceReader    // optional; nil disables OFS workspace browsing
 	serverURL       string             // sandbox lifecycle server base URL
 	sandboxAPIKey   string             // X-OPEN-SANDBOX-API-KEY value
@@ -119,9 +127,10 @@ func (h *Handler) withExecd(serverURL, apiKey string) {
 	h.sandboxAPIKey = apiKey
 }
 
-func (h *Handler) withResources(kr db.KindsRepository, w ResourceWriter) {
+func (h *Handler) withResources(kr db.KindsRepository, w ResourceWriter, r ResourceReader) {
 	h.kindsRepo = kr
 	h.ofsWriter = w
+	h.ofsReader = r
 }
 
 func (h *Handler) withWorkspace(r WorkspaceReader) {
@@ -709,6 +718,192 @@ func (h *Handler) CreateResource(c *gin.Context) {
 	c.JSON(http.StatusCreated, kindRecordToResponse(rec))
 }
 
+// CreateSkillFromZip handles POST /api/resources/zip.
+// Accepts a multipart form with fields "name" and "file" (a .zip archive).
+// The zip must contain SKILL.md at its root; all other files are uploaded as
+// companion files. Validates path safety, per-file size (1 MiB), and total
+// file count (20 max) before writing anything to OFS.
+//
+// @Summary      Create a skill from a zip archive
+// @Description  Create a multi-file skill by uploading a zip. The zip must contain SKILL.md at root. Other files are stored as companion files (max 20 total, 1 MiB each).
+// @Tags         resources
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        name  formData  string  true  "Skill name ([a-zA-Z0-9_-]+)"
+// @Param        file  formData  file    true  "Zip archive"
+// @Success      201   {object}  resourceResponse
+// @Failure      400   {object}  errorResponse  "invalid name, missing SKILL.md, or bad zip"
+// @Failure      401   {object}  errorResponse  "unauthorized"
+// @Failure      413   {object}  errorResponse  "zip or file too large"
+// @Failure      422   {object}  errorResponse  "too many files"
+// @Failure      500   {object}  errorResponse  "storage error"
+// @Failure      503   {object}  errorResponse  "resource storage not configured"
+// @Router       /api/resources/zip [post]
+func (h *Handler) CreateSkillFromZip(c *gin.Context) {
+	if h.kindsRepo == nil || h.ofsWriter == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "resource storage not configured"})
+		return
+	}
+	u := auth.GetUser(c)
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	name := c.PostForm("name")
+	if !validResourceName.MatchString(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name must match ^[a-zA-Z0-9_-]+$"})
+		return
+	}
+
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+		return
+	}
+
+	const maxZipSize = maxSkillFiles * maxSkillFileSize
+	f, err := fileHeader.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read upload"})
+		return
+	}
+	defer f.Close()
+
+	zipBytes, err := io.ReadAll(io.LimitReader(f, maxZipSize+1))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read upload"})
+		return
+	}
+	if len(zipBytes) > maxZipSize {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("zip exceeds %d MiB total limit", maxZipSize>>20)})
+		return
+	}
+
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid zip file"})
+		return
+	}
+
+	type zipEntry struct {
+		path    string
+		content []byte
+	}
+	// Collect all non-directory file entries, filtering macOS metadata folders.
+	var rawEntries []zipEntry
+	for _, zf := range zr.File {
+		// Use FileInfo().IsDir() (checks mode bits) rather than a name-suffix
+		// check — more reliable across zip implementations.
+		if zf.FileInfo().IsDir() {
+			continue
+		}
+		// Strip macOS __MACOSX resource-fork entries.
+		if strings.HasPrefix(zf.Name, "__MACOSX/") {
+			continue
+		}
+		rc, err := zf.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read zip entry"})
+			return
+		}
+		content, readErr := io.ReadAll(io.LimitReader(rc, maxSkillFileSize+1))
+		rc.Close()
+		if readErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read zip entry"})
+			return
+		}
+		if len(content) > maxSkillFileSize {
+			c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": fmt.Sprintf("file %q exceeds 1 MiB limit", zf.Name)})
+			return
+		}
+		rawEntries = append(rawEntries, zipEntry{path: zf.Name, content: content})
+	}
+
+	if len(rawEntries) > 0 {
+		prefix := ""
+		if i := strings.IndexByte(rawEntries[0].path, '/'); i >= 0 {
+			prefix = rawEntries[0].path[:i]
+		}
+		if prefix != "" {
+			allMatch := true
+			for _, e := range rawEntries[1:] {
+				if !strings.HasPrefix(e.path, prefix+"/") {
+					allMatch = false
+					break
+				}
+			}
+			if allMatch {
+				for i := range rawEntries {
+					rawEntries[i].path = strings.TrimPrefix(rawEntries[i].path, prefix+"/")
+				}
+			}
+		}
+	}
+
+	// Validate paths and split into SKILL.md vs companions.
+	var companions []zipEntry
+	var skillMDContent []byte
+	for _, e := range rawEntries {
+		if !isValidSkillFilePath(e.path) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid file path in zip: %q", e.path)})
+			return
+		}
+		if e.path == "SKILL.md" {
+			skillMDContent = e.content
+		} else {
+			companions = append(companions, e)
+		}
+	}
+
+	if skillMDContent == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "zip must contain SKILL.md at root"})
+		return
+	}
+	if 1+len(companions) > maxSkillFiles {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("skill cannot exceed %d files", maxSkillFiles)})
+		return
+	}
+
+	ofsPath := fmt.Sprintf("%s/resources/skills/%s/", u.UserName, name)
+
+	if err := h.ofsWriter.PutObject(c.Request.Context(), ofsPath+"SKILL.md", skillMDContent); err != nil {
+		logger.Default().Error("put SKILL.md to OFS", "key", ofsPath+"SKILL.md", "err", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store resource"})
+		return
+	}
+
+	initMeta, _ := json.Marshal(db.SkillMeta{Files: []string{"SKILL.md"}})
+	rec, err := h.kindsRepo.Create(c.Request.Context(), u.ID, "skill", name, ofsPath, initMeta)
+	if err != nil {
+		logger.Default().Error("create kind record for zip skill", "err", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create resource"})
+		return
+	}
+
+	if len(companions) > 0 {
+		files := []string{"SKILL.md"}
+		for _, entry := range companions {
+			ofsKey := ofsPath + entry.path
+			if err := h.ofsWriter.PutObject(c.Request.Context(), ofsKey, entry.content); err != nil {
+				logger.Default().Error("put companion file to OFS", "key", ofsKey, "err", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to store file %q", entry.path)})
+				return
+			}
+			files = append(files, entry.path)
+		}
+		newMeta, _ := json.Marshal(db.SkillMeta{Files: files})
+		rec, err = h.kindsRepo.Update(c.Request.Context(), rec.ID, u.ID, db.KindUpdate{Meta: newMeta})
+		if err != nil {
+			logger.Default().Error("update skill meta after zip upload", "id", rec.ID, "err", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update resource"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusCreated, kindRecordToResponse(rec))
+}
+
 // ListResources handles GET /api/resources.
 //
 // @Summary      List resources
@@ -869,6 +1064,58 @@ func (h *Handler) DeleteResource(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 	c.Writer.WriteHeaderNow()
+}
+
+// GetSkillContent handles GET /api/resources/:id/content.
+// Returns the SKILL.md content for a skill resource as plain text.
+//
+// @Summary      Get skill SKILL.md content
+// @Description  Reads and returns the SKILL.md content for a skill resource from OFS.
+// @Tags         resources
+// @Produce      text/plain
+// @Param        id   path      int  true  "Resource ID"
+// @Success      200  {string}  string  "SKILL.md content"
+// @Failure      400  {object}  errorResponse  "resource is not a skill"
+// @Failure      401  {object}  errorResponse  "unauthorized"
+// @Failure      404  {object}  errorResponse  "resource not found"
+// @Failure      503  {object}  errorResponse  "resource storage not configured"
+// @Router       /api/resources/{id}/content [get]
+func (h *Handler) GetSkillContent(c *gin.Context) {
+	if h.kindsRepo == nil || h.ofsReader == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "resource storage not configured"})
+		return
+	}
+	u := auth.GetUser(c)
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	rec, err := h.kindsRepo.Get(c.Request.Context(), id, u.ID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "resource not found"})
+		return
+	}
+	if rec.Kind != "skill" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "content endpoint is only available for skill resources"})
+		return
+	}
+
+	ofsKey := rec.OFSPath + "SKILL.md"
+	data, err := h.ofsReader.GetObjectBytes(c.Request.Context(), ofsKey)
+	if err != nil {
+		logger.Default().Error("read SKILL.md from OFS", "key", ofsKey, "err", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read skill content"})
+		return
+	}
+
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", data)
 }
 
 // UpsertSkillFile handles PUT /api/resources/:id/files/*filepath.

@@ -107,6 +107,19 @@ type KindUpdate struct {
 
 ---
 
+## Skill Creation Methods
+
+Skills can be created in two ways. The method chosen at creation time is permanent — skills are **read-only** from the resource page after creation. To replace a skill's content, delete it and recreate.
+
+| Method | Endpoint | When to use |
+|--------|----------|-------------|
+| **Simple editor** | `POST /api/resources` | Single `SKILL.md` only; content typed or pasted inline |
+| **Zip upload** | `POST /api/resources/zip` | Multi-file skill with companion scripts, data files, etc. |
+
+The UI surfaces this as an "Editor / Zip Upload" toggle on the skill creation form.
+
+---
+
 ## REST API
 
 All routes are under `/api/resources`, protected by `auth.BearerAuth`.
@@ -150,6 +163,67 @@ For `mcp`: the configuration is taken from `meta` (preferred) or parsed from `co
 Returns all resources (active and inactive) owned by the authenticated user. Empty array when none exist.
 
 **Response:** `200 OK`, array of resource objects.
+
+---
+
+### `POST /api/resources/zip` — Create a skill from a zip archive
+
+Accepts a `multipart/form-data` request with two fields:
+
+| Field | Type   | Description |
+|-------|--------|-------------|
+| `name` | string | Skill name — must match `^[a-zA-Z0-9_-]+$` |
+| `file` | file   | A `.zip` archive |
+
+**Limits:**
+- Total zip size ≤ 20 MiB (→ 413)
+- Each file ≤ 1 MiB (→ 413)
+- Total files (after stripping) ≤ 20 (→ 422)
+
+**Zip parsing — directory prefix stripping**
+
+The zip is parsed entirely server-side using Go's `archive/zip`. Because most zip tools (macOS Finder "Compress", `zip -r skill.zip skill-dir/`) embed the source directory name as the first path component, the server automatically strips a common top-level prefix when all entries share one:
+
+| Zip contents | After stripping | Accepted? |
+|---|---|---|
+| `SKILL.md`, `scripts/run.py` | — (no prefix) | ✓ |
+| `my-skill/SKILL.md`, `my-skill/scripts/run.py` | `SKILL.md`, `scripts/run.py` | ✓ |
+| `a/SKILL.md`, `b/helper.py` | — (mixed prefixes, no stripping) | ✗ (no SKILL.md at root) |
+
+Stripping logic: if every non-directory entry shares the same first path segment, that segment plus its trailing `/` is removed from all paths before validation.
+
+**Filtering**
+
+Before prefix stripping, the following entries are silently discarded:
+- Directory entries (detected via `FileInfo().IsDir()` on the zip header, not just a `/` suffix)
+- macOS resource-fork entries with prefix `__MACOSX/`
+
+**Path validation (after stripping)**
+
+Each remaining path must:
+- Match `^[a-zA-Z0-9_./-]+$`
+- Contain no empty, `.`, or `..` segments
+
+This prevents [Zip Slip](https://snyk.io/research/zip-slip-vulnerability) attacks — a crafted archive with `../../evil.sh` entries would be rejected at the segment check before any OFS write occurs.
+
+`SKILL.md` must appear at the logical root after stripping (→ 400 otherwise).
+
+**Write sequence**
+
+1. Validate all entries in-memory (no writes on any validation error)
+2. Write `SKILL.md` to OFS at `{username}/resources/skills/{name}/SKILL.md`
+3. Create `kinds` DB record with `meta = {"files": ["SKILL.md"]}`
+4. For each companion file (in zip order): write to OFS at `{ofs_path}{relPath}`
+5. Update `meta.files` with the full list in a single `Update` call
+6. Return the final record
+
+If an OFS write fails mid-sequence (step 4), the request returns 500 and the DB record is left with a partial `meta.files`. The partially-uploaded OFS content is not rolled back (consistent with the general OFS cleanup-is-out-of-scope policy).
+
+**Response:** `201 Created` with the resource record, or:
+- `400` — invalid name, invalid zip, missing SKILL.md, or invalid file paths
+- `413` — zip or individual file exceeds size limit
+- `422` — more than 20 files in the zip
+- `503` — OFS not configured
 
 ---
 

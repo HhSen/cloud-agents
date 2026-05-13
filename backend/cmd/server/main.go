@@ -147,6 +147,7 @@ func main() {
 		FileStore:       ofsClient,
 		KindsRepo:       kindsRepo,
 		OFSWriter:       ofsClient,
+		OFSReader:       ofsClient,
 		WorkspaceReader: ofsClient,
 		CORSOrigin:      cfg.Server.CORSOrigin,
 		DB:              gormDB,
