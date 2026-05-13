@@ -180,6 +180,14 @@ export async function createSkillFromZip(name: string, file: File): Promise<Reso
   return res.json() as Promise<Resource>
 }
 
+export async function getSkillContent(id: number): Promise<string> {
+  const res = await fetch(`${BASE}/api/resources/${id}/content`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to fetch skill content')
+  return res.text()
+}
+
 export async function deleteResource(id: number): Promise<void> {
   const res = await fetch(`${BASE}/api/resources/${id}`, {
     method: 'DELETE',

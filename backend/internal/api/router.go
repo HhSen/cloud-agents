@@ -24,6 +24,7 @@ type RouterDeps struct {
 	FileStore       FileStore
 	KindsRepo       db.KindsRepository // nil → resource API unavailable
 	OFSWriter       ResourceWriter     // nil → resource content upload unavailable
+	OFSReader       ResourceReader     // nil → resource content read unavailable
 	WorkspaceReader WorkspaceReader    // nil → OFS workspace browsing unavailable
 	CORSOrigin      string
 	DB              *gorm.DB      // nil → auth disabled (dev mode)
@@ -37,7 +38,7 @@ type RouterDeps struct {
 func NewRouter(deps RouterDeps) http.Handler {
 	h := NewHandler(deps.Store, deps.Manager, sandbox.NewProxy(), deps.FileStore)
 	if deps.KindsRepo != nil {
-		h.withResources(deps.KindsRepo, deps.OFSWriter)
+		h.withResources(deps.KindsRepo, deps.OFSWriter, deps.OFSReader)
 	}
 	if deps.Cfg != nil {
 		h.withExecd(deps.Cfg.Sandbox.ServerURL, deps.Cfg.Sandbox.APIKey)
@@ -87,6 +88,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		protected.POST("/resources", h.CreateResource)
 		protected.POST("/resources/zip", h.CreateSkillFromZip)
 		protected.GET("/resources", h.ListResources)
+		protected.GET("/resources/:id/content", h.GetSkillContent)
 		protected.PUT("/resources/:id", h.UpdateResource)
 		protected.DELETE("/resources/:id", h.DeleteResource)
 		protected.PUT("/resources/:id/files/*filepath", h.UpsertSkillFile)

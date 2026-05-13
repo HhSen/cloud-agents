@@ -19,6 +19,7 @@ import {
   createSkillFromZip,
   updateResource,
   deleteResource,
+  getSkillContent,
 } from '@/api/client'
 import type { Resource } from '@/api/client'
 
@@ -30,6 +31,9 @@ export function ResourcesPage() {
   const [formState, setFormState] = useState<'closed' | 'create' | number>('closed')
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
   const [deleteConfirming, setDeleteConfirming] = useState(false)
+  const [viewTarget, setViewTarget] = useState<Resource | null>(null)
+  const [viewContent, setViewContent] = useState<string | null>(null)
+  const [viewLoading, setViewLoading] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -52,6 +56,20 @@ export function ResourcesPage() {
       await updateResource(r.id, { is_active: !r.is_active })
     } catch {
       setResources(resources)
+    }
+  }
+
+  const handleView = async (r: Resource) => {
+    setViewTarget(r)
+    setViewContent(null)
+    setViewLoading(true)
+    try {
+      const content = await getSkillContent(r.id)
+      setViewContent(content)
+    } catch {
+      setViewContent('Failed to load SKILL.md content.')
+    } finally {
+      setViewLoading(false)
     }
   }
 
@@ -123,6 +141,16 @@ export function ResourcesPage() {
                   />
                   <span>{r.is_active ? 'Active' : 'Inactive'}</span>
                 </div>
+                {r.kind === 'skill' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-7 px-2"
+                    onClick={() => handleView(r)}
+                  >
+                    View
+                  </Button>
+                )}
                 {r.kind === 'mcp' && (
                   <Button
                     variant="ghost"
@@ -195,6 +223,27 @@ export function ResourcesPage() {
           <TabsContent value="mcp">{tabContent('mcp')}</TabsContent>
         </Tabs>
       )}
+
+      <Dialog open={viewTarget !== null} onOpenChange={open => { if (!open) { setViewTarget(null); setViewContent(null) } }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{viewTarget?.name} — SKILL.md</DialogTitle>
+            <DialogDescription>Read-only view of the skill instruction file.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto rounded border border-neutral-200 bg-neutral-50 p-3 min-h-0">
+            {viewLoading ? (
+              <p className="text-sm text-neutral-400">Loading…</p>
+            ) : (
+              <pre className="text-xs font-mono whitespace-pre-wrap break-words text-neutral-800">{viewContent}</pre>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setViewTarget(null); setViewContent(null) }}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteTarget !== null} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
         <DialogContent>

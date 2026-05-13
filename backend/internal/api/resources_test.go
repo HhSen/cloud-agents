@@ -95,13 +95,30 @@ func (m *mockOFSWriter) PutObject(_ context.Context, key string, data []byte) er
 	return m.err
 }
 
+type mockOFSReader struct {
+	data map[string][]byte
+	err  error
+}
+
+func (m *mockOFSReader) GetObjectBytes(_ context.Context, key string) ([]byte, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.data != nil {
+		if v, ok := m.data[key]; ok {
+			return v, nil
+		}
+	}
+	return nil, fmt.Errorf("not found: %s", key)
+}
+
 // ---- helpers ----
 
 // resourceHandler builds a Handler with resource deps wired and returns it.
 func resourceHandler(kr *mockKindsRepo, w *mockOFSWriter) *Handler {
 	h := NewHandler(&mockStore{}, &mockManager{}, &mockProxy{}, nil)
 	if kr != nil {
-		h.withResources(kr, w)
+		h.withResources(kr, w, &mockOFSReader{})
 	}
 	return h
 }
