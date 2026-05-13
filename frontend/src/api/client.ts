@@ -171,3 +171,30 @@ export async function deleteResource(id: number): Promise<void> {
   })
   if (!res.ok && res.status !== 404) throw new Error('Failed to delete resource')
 }
+
+export interface FileInfo {
+  path: string
+  name: string
+  isDir: boolean
+  size: number
+  mode: string
+  modTime: string
+}
+
+export async function listDir(taskId: string, dir: string): Promise<FileInfo[]> {
+  const params = new URLSearchParams({ path: dir, pattern: '*' })
+  const res = await fetch(`${BASE}/api/tasks/${taskId}/execd/files/search?${params}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to list directory')
+  return res.json() as Promise<FileInfo[]>
+}
+
+export async function readFile(taskId: string, filePath: string): Promise<string> {
+  const params = new URLSearchParams({ path: filePath })
+  const res = await fetch(`${BASE}/api/tasks/${taskId}/execd/files/download?${params}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to read file')
+  return res.text()
+}

@@ -85,22 +85,31 @@ type MessageProxy interface {
 // Handler wires together the store, sandbox manager, message proxy, and file store
 // to serve the tasks REST API.
 type Handler struct {
-	store     TaskStore
-	manager   SandboxManager
-	proxy     MessageProxy
-	fileStore FileStore
-	kindsRepo db.KindsRepository // optional; nil disables resource API
-	ofsWriter ResourceWriter     // optional; nil disables resource content upload
+	store          TaskStore
+	manager        SandboxManager
+	proxy          MessageProxy
+	fileStore      FileStore
+	kindsRepo      db.KindsRepository // optional; nil disables resource API
+	ofsWriter      ResourceWriter     // optional; nil disables resource content upload
+	serverURL      string             // sandbox lifecycle server base URL
+	sandboxAPIKey  string             // X-OPEN-SANDBOX-API-KEY value
+	httpClient     *http.Client       // reused for execd proxy requests
 }
 
 // NewHandler constructs a Handler from its dependencies.
 func NewHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy, fileStore FileStore) *Handler {
 	return &Handler{
-		store:     store,
-		manager:   mgr,
-		proxy:     proxy,
-		fileStore: fileStore,
+		store:      store,
+		manager:    mgr,
+		proxy:      proxy,
+		fileStore:  fileStore,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+func (h *Handler) withExecd(serverURL, apiKey string) {
+	h.serverURL = serverURL
+	h.sandboxAPIKey = apiKey
 }
 
 func (h *Handler) withResources(kr db.KindsRepository, w ResourceWriter) {
@@ -1042,4 +1051,64 @@ func kindRecordToResponse(r *db.KindRecord) resourceResponse {
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}
+}
+
+// ExecdProxy proxies filesystem and command requests to the execd daemon running
+// inside a task's sandbox on port 44772.
+//
+// @Summary      Proxy execd filesystem API
+// @Description  Forwards any method+path to the execd daemon (port 44772) inside the task's sandbox. Supports GET /files/search, GET /files/download, POST /directories, etc.
+// @Tags         tasks
+// @Param        id    path  string  true  "Task ID"
+// @Param        path  path  string  true  "Execd sub-path (e.g. files/search)"
+// @Success      200
+// @Failure      404   {object}  errorResponse  "task not found"
+// @Failure      409   {object}  errorResponse  "sandbox not running"
+// @Failure      502   {object}  errorResponse  "execd unreachable"
+// @Router       /api/tasks/{id}/execd/{path} [get]
+func (h *Handler) ExecdProxy(c *gin.Context) {
+	taskID := c.Param("id")
+	subpath := c.Param("path") // begins with "/"
+
+	t, err := h.store.Get(c.Request.Context(), taskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse{Error: "task not found"})
+		return
+	}
+
+	sandboxID := t.GetSandboxID()
+	if sandboxID == "" {
+		c.JSON(http.StatusConflict, errorResponse{Error: "sandbox not running"})
+		return
+	}
+
+	target := fmt.Sprintf("%s/sandboxes/%s/proxy/44772%s", h.serverURL, sandboxID, subpath)
+	if q := c.Request.URL.RawQuery; q != "" {
+		target += "?" + q
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), c.Request.Method, target, c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	req.Header.Set("X-OPEN-SANDBOX-API-KEY", h.sandboxAPIKey)
+	if ct := c.GetHeader("Content-Type"); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, errorResponse{Error: err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vs := range resp.Header {
+		for _, v := range vs {
+			c.Header(k, v)
+		}
+	}
+	c.Status(resp.StatusCode)
+	io.Copy(c.Writer, resp.Body) //nolint:errcheck
 }

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeft, Blocks } from 'lucide-react'
+import { PanelLeft, Blocks, FolderOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ChatInput } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { HistorySidepanel } from '@/components/HistorySidepanel'
 import { StatusBadge } from '@/components/StatusBadge'
+import { WorkspacePanel } from '@/components/WorkspacePanel'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChat } from '@/hooks/useChat'
 import { deleteTask, getHistory, listTasks } from '@/api/client'
@@ -16,8 +17,16 @@ import { cn } from '@/lib/utils'
 export function ChatPage() {
   const navigate = useNavigate()
   const username = getAuthUsername() ?? ''
-  const { messages, taskId, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask } =
-    useChat(username)
+
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
+  const [refreshToken, setRefreshToken] = useState(0)
+
+  const handleSessionCompleted = useCallback(() => {
+    setRefreshToken(t => t + 1)
+  }, [])
+
+  const { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask } =
+    useChat(username, handleSessionCompleted)
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [tasks, setTasks] = useState<TaskSummary[]>([])
@@ -73,7 +82,10 @@ export function ChatPage() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div className={cn('flex flex-col h-full w-full mx-auto', sidebarOpen ? 'max-w-2xl' : 'max-w-3xl')}>
+        <div className={cn(
+          'flex flex-col h-full w-full mx-auto',
+          workspaceOpen ? 'max-w-xl' : sidebarOpen ? 'max-w-2xl' : 'max-w-3xl',
+        )}>
           <header className="flex items-center justify-between px-4 py-3 border-b border-neutral-200">
             <div className="flex items-center gap-2">
               <button
@@ -86,15 +98,27 @@ export function ChatPage() {
               <span className="font-semibold text-sm">Lucas</span>
             </div>
             <div className="flex items-center gap-1">
-                <button
-                  onClick={() => navigate('/resources')}
-                  className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
-                  title="Manage resources"
-                >
-                  <Blocks size={16} />
-                </button>
-                <StatusBadge state={sandboxState} />
-              </div>
+              <button
+                onClick={() => navigate('/resources')}
+                className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
+                title="Manage resources"
+              >
+                <Blocks size={16} />
+              </button>
+              <button
+                onClick={() => setWorkspaceOpen(v => !v)}
+                className={cn(
+                  'p-1.5 rounded hover:bg-neutral-100 transition-colors',
+                  workspaceOpen
+                    ? 'text-neutral-700 bg-neutral-100'
+                    : 'text-neutral-500 hover:text-neutral-700',
+                )}
+                title={workspaceOpen ? 'Close workspace' : 'Open workspace'}
+              >
+                <FolderOpen size={16} />
+              </button>
+              <StatusBadge state={sandboxState} />
+            </div>
           </header>
 
           <ScrollArea className="flex-1">
@@ -120,6 +144,18 @@ export function ChatPage() {
           <ChatInput onSend={sendMessage} disabled={sending} />
         </div>
       </div>
+
+      {workspaceOpen && taskId && cwd ? (
+        <WorkspacePanel
+          taskId={taskId}
+          cwd={cwd}
+          refreshToken={refreshToken}
+        />
+      ) : workspaceOpen ? (
+        <div className="w-72 h-[100dvh] border-l border-neutral-200 flex items-center justify-center bg-white">
+          <p className="text-xs text-neutral-400 text-center px-4">Workspace available when sandbox is running</p>
+        </div>
+      ) : null}
     </div>
   )
 }

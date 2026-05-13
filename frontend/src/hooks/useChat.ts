@@ -30,9 +30,10 @@ function makeId() {
   return Math.random().toString(36).slice(2)
 }
 
-export function useChat(username: string) {
+export function useChat(username: string, onSessionCompleted?: () => void) {
   const [messages, setMessages] = useState<Message[]>([])
   const [taskId, setTaskId] = useState<string | null>(null)
+  const [cwd, setCwd] = useState<string | null>(null)
   const [sandboxState, setSandboxState] = useState<SandboxState>('idle')
   const [sending, setSending] = useState(false)
   const currentAssistantMsgIdRef = useRef<string | null>(null)
@@ -96,6 +97,8 @@ export function useChat(username: string) {
         switch (event) {
           case 'session.init': {
             setSandboxState('running')
+            const initData = data as { cwd?: string }
+            if (initData.cwd) setCwd(initData.cwd)
             break
           }
           case 'message.assistant': {
@@ -203,6 +206,7 @@ export function useChat(username: string) {
               })
             )
             setSending(false)
+            onSessionCompleted?.()
             break
           }
           case 'error': {
@@ -227,6 +231,7 @@ export function useChat(username: string) {
   const newChat = useCallback(() => {
     setTaskId(null)
     setMessages([])
+    setCwd(null)
     setSandboxState('idle')
     setSending(false)
     currentAssistantMsgIdRef.current = null
@@ -240,5 +245,5 @@ export function useChat(username: string) {
     currentAssistantMsgIdRef.current = null
   }, [])
 
-  return { messages, taskId, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask }
+  return { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask }
 }

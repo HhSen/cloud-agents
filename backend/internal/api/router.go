@@ -38,6 +38,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	if deps.KindsRepo != nil {
 		h.withResources(deps.KindsRepo, deps.OFSWriter)
 	}
+	if deps.Cfg != nil {
+		h.withExecd(deps.Cfg.Sandbox.ServerURL, deps.Cfg.Sandbox.APIKey)
+	}
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -83,6 +86,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		protected.DELETE("/resources/:id", h.DeleteResource)
 		protected.PUT("/resources/:id/files/*filepath", h.UpsertSkillFile)
 		protected.DELETE("/resources/:id/files/*filepath", h.DeleteSkillFile)
+
+		protected.Any("/tasks/:id/execd/*path", h.ExecdProxy)
 	}
 
 	r.GET("/health", h.Health)
