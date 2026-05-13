@@ -27,7 +27,7 @@ function formatDate(dateStr: string): string {
 
 export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat, onDeleteTask }: Props) {
   return (
-    <div className="w-60 flex-shrink-0 flex flex-col border-r border-neutral-200 h-full bg-neutral-50">
+    <div className="w-full h-full flex flex-col bg-neutral-50">
       <div className="px-3 py-3 flex items-center justify-between border-b border-neutral-200">
         <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">History</span>
         <button

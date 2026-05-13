@@ -1,8 +1,8 @@
-# Workspace Panel: Sandbox Filesystem Access
+# Workspace Panel: OFS-Backed Filesystem Access
 
 ## Overview
 
-The workspace panel lets the frontend browse the sandbox's working directory in real time. It is a read-only file tree with an inline file viewer. The panel appears as a third column on the right side of `ChatPage`.
+The workspace panel lets the frontend browse the task's working directory. It is a read-only file tree with an inline file viewer. The panel appears as a third column on the right side of `ChatPage` and works for both active and history sessions.
 
 ```
 ┌──────────────┬──────────────────────┬──────────────────┐
@@ -15,85 +15,96 @@ The workspace panel lets the frontend browse the sandbox's working directory in 
 
 ## Request Path
 
-All filesystem operations are proxied through the backend to the **execd** daemon running on port 44772 inside the sandbox container.
+Filesystem operations go directly to **OFS (OrangeFS)** via S3 — no sandbox required.
 
 ```
 Frontend
-  │  GET /api/tasks/:id/execd/files/search?path=...
+  │  GET /api/tasks/:id/workspace/files?path=...
+  │  GET /api/tasks/:id/workspace/file?path=...
   ▼
-Go backend  (ExecdProxy handler)
-  │  GET {serverURL}/sandboxes/{sandboxID}/proxy/44772/files/search?path=...
-  │  Header: X-OPEN-SANDBOX-API-KEY: <apiKey>
+Go backend  (WorkspaceFiles / WorkspaceFile handlers)
+  │  ListObjectsV2 (with Delimiter: /) / GetObject
   ▼
-OpenSandbox server (:8080)
-  └─ /sandboxes/:id/proxy/44772  →  container:44772  →  execd
+OFS S3 endpoint  (ORANGEFS_ENDPOINT)
+  └─ bucket: {volume}  prefix: {username}/workspaces/{task_id}/...
 ```
 
-The backend constructs the execd URL directly from:
-
-```go
-target := fmt.Sprintf("%s/sandboxes/%s/proxy/44772%s", h.serverURL, sandboxID, subpath)
-```
-
-This is identical to the pattern used by the existing `writeFile` / `makeDirAll` calls in `sandbox/manager.go`. No separate execd access token is required — the OpenSandbox proxy accepts the lifecycle API key (`X-OPEN-SANDBOX-API-KEY`) and forwards the request internally.
+The legacy execd proxy route (`ANY /api/tasks/:id/execd/*path`) is **kept** for non-workspace execd operations and is not removed.
 
 ---
 
-## Backend: ExecdProxy Handler
+## S3 Key Mapping
 
-**Route**: `ANY /api/tasks/:id/execd/*path` (protected, bearer auth)
+| Concept | S3 key |
+|---|---|
+| Workspace root | `{username}/workspaces/{task_id}/` |
+| File at CWD-relative path `p` | `{username}/workspaces/{task_id}/{p}` |
+| Subdirectory `dir/` | Listed as a CommonPrefix with `Delimiter: /` |
 
-The handler:
-1. Looks up the task by `:id`; returns 404 if not found.
-2. Reads `task.GetSandboxID()`; returns 409 if the sandbox is not running.
-3. Constructs the execd target URL and forwards the original method + query string + body.
-4. Sets `X-OPEN-SANDBOX-API-KEY` on the upstream request.
-5. Copies the upstream response status, headers, and body verbatim to the client.
+Given `cwd = /workspace/{username}/{task_id}` and a requested path `p`:
+- Strip the CWD prefix from `p` to get `relPath`
+- S3 key: `{username}/workspaces/{task_id}/{relPath}`
 
-`ANY` registration lets the proxy forward both `GET` (file listing, download) and `POST` (directories, future commands) without separate route entries.
+---
+
+## Backend: WorkspaceFiles / WorkspaceFile Handlers
+
+### `WorkspaceFiles` — list a directory
+
+**Route**: `GET /api/tasks/:id/workspace/files?path=<absolute-dir>` (protected)
+
+1. Resolves task → 404 if not found.
+2. Returns 409 if `workspaceReader` is not configured (OFS not set up).
+3. Calls `storage.Client.ListWorkspace(ctx, username, taskID, path)`.
+4. Returns `[]FileInfo` (same JSON shape as execd `files/search`).
+
+### `WorkspaceFile` — download a file
+
+**Route**: `GET /api/tasks/:id/workspace/file?path=<absolute-file>` (protected)
+
+1. Resolves task → 404 if not found.
+2. Returns 409 if `workspaceReader` not configured.
+3. Calls `storage.Client.GetWorkspaceFile(ctx, username, taskID, path)`.
+4. Streams raw bytes as `application/octet-stream`.
 
 **Handler fields** added to `api.Handler`:
 
 | Field | Type | Purpose |
 |---|---|---|
-| `serverURL` | `string` | OpenSandbox lifecycle server base URL |
-| `sandboxAPIKey` | `string` | Value for `X-OPEN-SANDBOX-API-KEY` header |
-| `httpClient` | `*http.Client` | Reused HTTP client (30 s timeout) |
+| `workspaceReader` | `WorkspaceReader` | OFS S3 client for workspace browsing |
 
-These are populated in `NewRouter` via `h.withExecd(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey)`.
+Populated in `NewRouter` via `h.withWorkspace(deps.WorkspaceReader)` when `deps.WorkspaceReader != nil`.
 
 ---
 
-## Execd Filesystem Endpoints Used
+## Storage Methods
 
-| Operation | Method | Path | Key params |
-|---|---|---|---|
-| List directory | `GET` | `/files/search` | `path=<dir>`, `pattern=*` |
-| Read file | `GET` | `/files/download` | `path=<file>` |
+In `backend/internal/storage/client.go`:
 
-`/files/search` with `pattern=*` returns one level of directory entries. The frontend triggers a second request per directory node when the user expands it (lazy loading).
+```go
+// ListWorkspace returns one level of entries under subpath inside the task workspace.
+func (c *Client) ListWorkspace(ctx context.Context, username, taskID, subpath string) ([]WorkspaceEntry, error)
 
-`/files/download` returns raw file bytes. Binary files are detected client-side by scanning the first 512 bytes for null characters.
+// GetWorkspaceFile returns the raw bytes of a workspace file.
+func (c *Client) GetWorkspaceFile(ctx context.Context, username, taskID, filePath string) ([]byte, error)
+```
+
+`ListWorkspace` uses `ListObjectsV2` with `Delimiter: /` for one-level directory listing.
 
 ---
 
 ## CWD: Working Directory
 
-The sandbox CWD is set at provisioning time:
+The workspace CWD is `/workspace/{username}/{task_id}`, derived from:
 
-```go
-// sandbox/proxy.go
-CWD: fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)
-```
+1. **Active session**: `session.init` SSE event emits `cwd`; `useChat.ts` extracts and stores it.
+2. **History session**: `GET /api/tasks/:id` response now includes `"cwd"` field:
+   ```go
+   CWD: fmt.Sprintf("/workspace/%s/%s", t.Username, id)
+   ```
+   `ChatPage.handleSelectTask` fetches the task in parallel with history and passes `task.cwd` to `loadTask`.
 
-The claude-agent-server emits it in the `session.init` SSE event:
-
-```
-event: session.init
-data: {"sessionId": "...", "cwd": "/workspace/alice/task-abc123", ...}
-```
-
-The frontend hook (`useChat.ts`) extracts `data.cwd` from this event and exposes it as `cwd`. `ChatPage` passes `cwd` as a prop to `WorkspacePanel`. The workspace panel is only rendered (and the file tree only fetched) once both `taskId` and `cwd` are non-null.
+`WorkspacePanel` renders as soon as both `taskId` and `cwd` are set — for history sessions this happens immediately on task load.
 
 ---
 
@@ -112,7 +123,7 @@ There is no polling during agent execution to avoid racing with in-progress file
 
 | Condition | Behaviour |
 |---|---|
-| Sandbox not running | Backend returns 409; frontend shows placeholder: *"Workspace available when sandbox is running"* |
-| execd unreachable | Backend returns 502; frontend shows error message in the panel |
+| OFS not configured | Backend returns 409; frontend shows error message in panel |
+| File not found in OFS | Backend returns 404; frontend shows *"Failed to load file"* |
 | Empty directory | Frontend renders *"empty"* label under the expanded node |
 | Binary file | Frontend renders *"Binary file, preview not available"* instead of raw content |

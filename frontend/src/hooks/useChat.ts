@@ -237,9 +237,10 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     currentAssistantMsgIdRef.current = null
   }, [])
 
-  const loadTask = useCallback((tid: string, historyMessages: Message[]) => {
+  const loadTask = useCallback((tid: string, historyMessages: Message[], taskCwd?: string) => {
     setTaskId(tid)
     setMessages(historyMessages)
+    if (taskCwd) setCwd(taskCwd)
     setSandboxState('idle')
     setSending(false)
     currentAssistantMsgIdRef.current = null

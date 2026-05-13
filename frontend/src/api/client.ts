@@ -72,7 +72,7 @@ export async function deleteTask(taskId: string): Promise<void> {
 export async function respondToPermission(taskId: string, decision: 'allow' | 'deny'): Promise<void> {
   await fetch(`${BASE}/api/tasks/${taskId}/permissions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ decision }),
   })
 }
@@ -80,7 +80,7 @@ export async function respondToPermission(taskId: string, decision: 'allow' | 'd
 export async function respondToQuestion(taskId: string, answers: Record<string, string | string[]>): Promise<void> {
   await fetch(`${BASE}/api/tasks/${taskId}/questions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ answers }),
   })
 }
@@ -197,9 +197,27 @@ export interface FileInfo {
   modTime: string
 }
 
+export interface Task {
+  id: string
+  username: string
+  state: string
+  sandbox_id: string
+  session_id: string
+  title: string
+  cwd: string
+}
+
+export async function getTask(taskId: string): Promise<Task> {
+  const res = await fetch(`${BASE}/api/tasks/${taskId}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to get task')
+  return res.json() as Promise<Task>
+}
+
 export async function listDir(taskId: string, dir: string): Promise<FileInfo[]> {
-  const params = new URLSearchParams({ path: dir, pattern: '*' })
-  const res = await fetch(`${BASE}/api/tasks/${taskId}/execd/files/search?${params}`, {
+  const params = new URLSearchParams({ path: dir })
+  const res = await fetch(`${BASE}/api/tasks/${taskId}/workspace/files?${params}`, {
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error('Failed to list directory')
@@ -208,7 +226,7 @@ export async function listDir(taskId: string, dir: string): Promise<FileInfo[]> 
 
 export async function readFile(taskId: string, filePath: string): Promise<string> {
   const params = new URLSearchParams({ path: filePath })
-  const res = await fetch(`${BASE}/api/tasks/${taskId}/execd/files/download?${params}`, {
+  const res = await fetch(`${BASE}/api/tasks/${taskId}/workspace/file?${params}`, {
     headers: authHeaders(),
   })
   if (!res.ok) throw new Error('Failed to read file')

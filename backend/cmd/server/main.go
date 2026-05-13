@@ -142,17 +142,18 @@ func main() {
 	}
 
 	router := api.NewRouter(api.RouterDeps{
-		Store:       repo,
-		Manager:     mgr,
-		FileStore:   ofsClient,
-		KindsRepo:   kindsRepo,
-		OFSWriter:   ofsClient,
-		CORSOrigin:  cfg.Server.CORSOrigin,
-		DB:          gormDB,
-		Redis:       rdb,
-		Cfg:         cfg,
-		OIDCService: oidcSvc,
-		SSOService:  ssoSvc,
+		Store:           repo,
+		Manager:         mgr,
+		FileStore:       ofsClient,
+		KindsRepo:       kindsRepo,
+		OFSWriter:       ofsClient,
+		WorkspaceReader: ofsClient,
+		CORSOrigin:      cfg.Server.CORSOrigin,
+		DB:              gormDB,
+		Redis:           rdb,
+		Cfg:             cfg,
+		OIDCService:     oidcSvc,
+		SSOService:      ssoSvc,
 	})
 
 	logger.Default().Info("listening", "addr", ":"+cfg.Server.Port)

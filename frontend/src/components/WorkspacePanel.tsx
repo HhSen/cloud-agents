@@ -175,7 +175,7 @@ export function WorkspacePanel({ taskId, cwd, refreshToken }: WorkspacePanelProp
   const displayCwd = cwd.length > 32 ? '…' + cwd.slice(-30) : cwd
 
   return (
-    <div className="w-72 h-[100dvh] border-l border-neutral-200 flex flex-col overflow-hidden bg-white">
+    <div className="w-full h-full flex flex-col overflow-hidden bg-white">
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-200 shrink-0">
         <span className="text-xs text-neutral-500 font-mono truncate" title={cwd}>{displayCwd}</span>
         <button

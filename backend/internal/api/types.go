@@ -25,6 +25,19 @@ type getTaskResponse struct {
 	SandboxID string `json:"sandbox_id"`
 	SessionID string `json:"session_id"`
 	Title     string `json:"title"`
+	CWD       string `json:"cwd"`
+}
+
+// FileInfo is a single file or directory entry in a workspace listing.
+// Field names and JSON keys match the execd files/search response shape
+// so the frontend requires no parsing changes.
+type FileInfo struct {
+	Path    string `json:"path"`
+	Name    string `json:"name"`
+	IsDir   bool   `json:"isDir"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"modTime"`
 }
 
 type respondToPermissionRequest struct {

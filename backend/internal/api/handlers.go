@@ -72,6 +72,12 @@ type ResourceWriter interface {
 	PutObject(ctx context.Context, key string, data []byte) error
 }
 
+// WorkspaceReader reads workspace files from OFS backing storage.
+type WorkspaceReader interface {
+	ListWorkspace(ctx context.Context, username, taskID, subpath string) ([]storage.WorkspaceEntry, error)
+	GetWorkspaceFile(ctx context.Context, username, taskID, filePath string) ([]byte, error)
+}
+
 // MessageProxy streams a prompt from the client through to the task's sandbox.
 type MessageProxy interface {
 	// StreamMessage forwards prompt to the sandbox associated with t and writes
@@ -87,15 +93,16 @@ type MessageProxy interface {
 // Handler wires together the store, sandbox manager, message proxy, and file store
 // to serve the tasks REST API.
 type Handler struct {
-	store          TaskStore
-	manager        SandboxManager
-	proxy          MessageProxy
-	fileStore      FileStore
-	kindsRepo      db.KindsRepository // optional; nil disables resource API
-	ofsWriter      ResourceWriter     // optional; nil disables resource content upload
-	serverURL      string             // sandbox lifecycle server base URL
-	sandboxAPIKey  string             // X-OPEN-SANDBOX-API-KEY value
-	httpClient     *http.Client       // reused for execd proxy requests
+	store           TaskStore
+	manager         SandboxManager
+	proxy           MessageProxy
+	fileStore       FileStore
+	kindsRepo       db.KindsRepository // optional; nil disables resource API
+	ofsWriter       ResourceWriter     // optional; nil disables resource content upload
+	workspaceReader WorkspaceReader    // optional; nil disables OFS workspace browsing
+	serverURL       string             // sandbox lifecycle server base URL
+	sandboxAPIKey   string             // X-OPEN-SANDBOX-API-KEY value
+	httpClient      *http.Client       // reused for execd proxy requests
 }
 
 // NewHandler constructs a Handler from its dependencies.
@@ -117,6 +124,10 @@ func (h *Handler) withExecd(serverURL, apiKey string) {
 func (h *Handler) withResources(kr db.KindsRepository, w ResourceWriter) {
 	h.kindsRepo = kr
 	h.ofsWriter = w
+}
+
+func (h *Handler) withWorkspace(r WorkspaceReader) {
+	h.workspaceReader = r
 }
 
 // PasswordLoginHandler returns a Gin handler for POST /api/auth/login.
@@ -365,6 +376,7 @@ func (h *Handler) GetTask(c *gin.Context) {
 		SandboxID: sandboxID,
 		SessionID: sessionID,
 		Title:     t.GetTitle(),
+		CWD:       fmt.Sprintf("/workspace/%s/%s", t.Username, id),
 	})
 }
 
@@ -1207,6 +1219,101 @@ func kindRecordToResponse(r *db.KindRecord) resourceResponse {
 		CreatedAt: r.CreatedAt,
 		UpdatedAt: r.UpdatedAt,
 	}
+}
+
+// WorkspaceFiles handles GET /api/tasks/:id/workspace/files?path=<absolute-dir>.
+//
+// @Summary      List workspace directory via OFS
+// @Tags         tasks
+// @Param        id    path   string  true  "Task ID"
+// @Param        path  query  string  true  "Absolute directory path"
+// @Success      200  {array}   FileInfo
+// @Failure      400  {object}  errorResponse  "path is required"
+// @Failure      404  {object}  errorResponse  "task not found"
+// @Failure      409  {object}  errorResponse  "OFS not configured"
+// @Failure      500  {object}  errorResponse  "internal error"
+// @Router       /api/tasks/{id}/workspace/files [get]
+func (h *Handler) WorkspaceFiles(c *gin.Context) {
+	taskID := c.Param("id")
+	dir := c.Query("path")
+	if dir == "" {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "path is required"})
+		return
+	}
+
+	t, err := h.store.Get(c.Request.Context(), taskID)
+	if err != nil || t == nil {
+		c.JSON(http.StatusNotFound, errorResponse{Error: "task not found"})
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
+		return
+	}
+
+	if h.workspaceReader == nil {
+		c.JSON(http.StatusConflict, errorResponse{Error: "OFS not configured"})
+		return
+	}
+
+	entries, err := h.workspaceReader.ListWorkspace(c.Request.Context(), t.Username, taskID, dir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+
+	result := make([]FileInfo, len(entries))
+	for i, e := range entries {
+		result[i] = FileInfo{
+			Path:    e.Path,
+			Name:    e.Name,
+			IsDir:   e.IsDir,
+			Size:    e.Size,
+			ModTime: e.ModTime.UTC().Format(time.RFC3339),
+		}
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// WorkspaceFile handles GET /api/tasks/:id/workspace/file?path=<absolute-file>.
+//
+// @Summary      Download workspace file via OFS
+// @Tags         tasks
+// @Param        id    path   string  true  "Task ID"
+// @Param        path  query  string  true  "Absolute file path"
+// @Success      200
+// @Failure      400  {object}  errorResponse  "path is required"
+// @Failure      404  {object}  errorResponse  "task not found or file not found"
+// @Failure      409  {object}  errorResponse  "OFS not configured"
+// @Router       /api/tasks/{id}/workspace/file [get]
+func (h *Handler) WorkspaceFile(c *gin.Context) {
+	taskID := c.Param("id")
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "path is required"})
+		return
+	}
+
+	t, err := h.store.Get(c.Request.Context(), taskID)
+	if err != nil || t == nil {
+		c.JSON(http.StatusNotFound, errorResponse{Error: "task not found"})
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
+		return
+	}
+
+	if h.workspaceReader == nil {
+		c.JSON(http.StatusConflict, errorResponse{Error: "OFS not configured"})
+		return
+	}
+
+	data, err := h.workspaceReader.GetWorkspaceFile(c.Request.Context(), t.Username, taskID, filePath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, errorResponse{Error: "file not found"})
+		return
+	}
+
+	c.Data(http.StatusOK, "application/octet-stream", data)
 }
 
 // ExecdProxy proxies filesystem and command requests to the execd daemon running

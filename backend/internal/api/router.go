@@ -19,17 +19,18 @@ import (
 
 // RouterDeps collects all wired-up dependencies for the router.
 type RouterDeps struct {
-	Store       TaskStore
-	Manager     SandboxManager
-	FileStore   FileStore
-	KindsRepo   db.KindsRepository // nil → resource API unavailable
-	OFSWriter   ResourceWriter     // nil → resource content upload unavailable
-	CORSOrigin  string
-	DB          *gorm.DB      // nil → auth disabled (dev mode)
-	Redis       *redis.Client // nil → CLI OIDC flow unavailable
-	Cfg         *config.Config
-	OIDCService *oidcpkg.Service // nil → OIDC routes not registered
-	SSOService  *ssopkg.Service  // nil → SSO routes not registered
+	Store           TaskStore
+	Manager         SandboxManager
+	FileStore       FileStore
+	KindsRepo       db.KindsRepository // nil → resource API unavailable
+	OFSWriter       ResourceWriter     // nil → resource content upload unavailable
+	WorkspaceReader WorkspaceReader    // nil → OFS workspace browsing unavailable
+	CORSOrigin      string
+	DB              *gorm.DB      // nil → auth disabled (dev mode)
+	Redis           *redis.Client // nil → CLI OIDC flow unavailable
+	Cfg             *config.Config
+	OIDCService     *oidcpkg.Service // nil → OIDC routes not registered
+	SSOService      *ssopkg.Service  // nil → SSO routes not registered
 }
 
 // NewRouter builds the HTTP handler for the tasks API.
@@ -40,6 +41,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 	}
 	if deps.Cfg != nil {
 		h.withExecd(deps.Cfg.Sandbox.ServerURL, deps.Cfg.Sandbox.APIKey)
+	}
+	if deps.WorkspaceReader != nil {
+		h.withWorkspace(deps.WorkspaceReader)
 	}
 
 	r := gin.New()
@@ -88,6 +92,8 @@ func NewRouter(deps RouterDeps) http.Handler {
 		protected.PUT("/resources/:id/files/*filepath", h.UpsertSkillFile)
 		protected.DELETE("/resources/:id/files/*filepath", h.DeleteSkillFile)
 
+		protected.GET("/tasks/:id/workspace/files", h.WorkspaceFiles)
+		protected.GET("/tasks/:id/workspace/file", h.WorkspaceFile)
 		protected.Any("/tasks/:id/execd/*path", h.ExecdProxy)
 	}
 

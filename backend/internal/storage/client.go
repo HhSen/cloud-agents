@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -39,6 +41,15 @@ type OFSClient interface {
 	GetHistory(ctx context.Context, key string) ([]json.RawMessage, error)
 	GetSessionMeta(ctx context.Context, username, taskID string) (*SessionMeta, error)
 	DeleteHistory(ctx context.Context, username, taskID string) error
+}
+
+// WorkspaceEntry is a single file or directory entry returned by ListWorkspace.
+type WorkspaceEntry struct {
+	Path    string    // absolute CWD-style path e.g. /workspace/alice/task-abc/src
+	Name    string    // last path segment
+	IsDir   bool
+	Size    int64
+	ModTime time.Time
 }
 
 // Client is a concrete OFSClient backed by an S3-compatible endpoint.
@@ -292,6 +303,77 @@ func (c *Client) DeleteHistory(ctx context.Context, username, taskID string) err
 		}
 	}
 	return nil
+}
+
+// ListWorkspace returns one level of entries under subpath inside the task workspace.
+// subpath is an absolute path like "/workspace/{username}/{task_id}/src"; the workspace
+// root is "/workspace/{username}/{task_id}".
+func (c *Client) ListWorkspace(ctx context.Context, username, taskID, subpath string) ([]WorkspaceEntry, error) {
+	cwdBase := fmt.Sprintf("/workspace/%s/%s", username, taskID)
+	relPath := strings.TrimPrefix(strings.TrimPrefix(subpath, cwdBase), "/")
+
+	s3Base := fmt.Sprintf("%s/workspaces/%s/", username, taskID)
+	listPrefix := s3Base
+	if relPath != "" {
+		listPrefix = fmt.Sprintf("%s/workspaces/%s/%s/", username, taskID, relPath)
+	}
+
+	var entries []WorkspaceEntry
+
+	paginator := s3.NewListObjectsV2Paginator(c.s3, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(c.volume),
+		Prefix:    aws.String(listPrefix),
+		Delimiter: aws.String("/"),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing workspace under %q: %w", listPrefix, err)
+		}
+		for _, cp := range page.CommonPrefixes {
+			dirKey := aws.ToString(cp.Prefix)
+			rel := strings.TrimSuffix(strings.TrimPrefix(dirKey, s3Base), "/")
+			absPath := fmt.Sprintf("/workspace/%s/%s/%s", username, taskID, rel)
+			entries = append(entries, WorkspaceEntry{
+				Path:  absPath,
+				Name:  path.Base(absPath),
+				IsDir: true,
+			})
+		}
+		for _, obj := range page.Contents {
+			key := aws.ToString(obj.Key)
+			rel := strings.TrimPrefix(key, s3Base)
+			if rel == "" {
+				continue
+			}
+			absPath := fmt.Sprintf("/workspace/%s/%s/%s", username, taskID, rel)
+			var modTime time.Time
+			if obj.LastModified != nil {
+				modTime = *obj.LastModified
+			}
+			var size int64
+			if obj.Size != nil {
+				size = *obj.Size
+			}
+			entries = append(entries, WorkspaceEntry{
+				Path:    absPath,
+				Name:    path.Base(absPath),
+				IsDir:   false,
+				Size:    size,
+				ModTime: modTime,
+			})
+		}
+	}
+	return entries, nil
+}
+
+// GetWorkspaceFile returns the raw bytes of a workspace file.
+// filePath is an absolute path like "/workspace/{username}/{task_id}/src/main.py".
+func (c *Client) GetWorkspaceFile(ctx context.Context, username, taskID, filePath string) ([]byte, error) {
+	cwdBase := fmt.Sprintf("/workspace/%s/%s", username, taskID)
+	relPath := strings.TrimPrefix(strings.TrimPrefix(filePath, cwdBase), "/")
+	key := fmt.Sprintf("%s/workspaces/%s/%s", username, taskID, relPath)
+	return c.GetObjectBytes(ctx, key)
 }
 
 // GetSessionMeta returns the Claude Code process record for the given task.
