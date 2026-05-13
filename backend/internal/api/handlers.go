@@ -36,11 +36,12 @@ type SandboxManager interface {
 	IsSandboxAlive(ctx context.Context, sandboxID string) (bool, error)
 }
 
-// FileStore retrieves task history from OFS-backed file storage.
+// FileStore retrieves and manages task history in OFS-backed file storage.
 type FileStore interface {
 	ListHistory(ctx context.Context, username, taskID string) ([]string, error)
 	GetHistory(ctx context.Context, key string) ([]json.RawMessage, error)
 	GetSessionMeta(ctx context.Context, username, taskID string) (*storage.SessionMeta, error)
+	DeleteHistory(ctx context.Context, username, taskID string) error
 }
 
 // ResourceWriter writes files to OFS storage.
@@ -344,6 +345,7 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 	}
 
 	sandboxID := t.GetSandboxID()
+	username := t.Username
 	if err := h.store.Delete(c.Request.Context(), id); err != nil {
 		log.Printf("delete task %s: %v", id, err)
 		c.String(http.StatusInternalServerError, "failed to delete task")
@@ -353,6 +355,12 @@ func (h *Handler) DeleteTask(c *gin.Context) {
 	if sandboxID != "" {
 		if err := h.manager.DeleteSandbox(context.Background(), sandboxID); err != nil {
 			log.Printf("delete sandbox %s: %v", sandboxID, err)
+		}
+	}
+
+	if h.fileStore != nil {
+		if err := h.fileStore.DeleteHistory(context.Background(), username, id); err != nil {
+			log.Printf("delete history for task %s: %v", id, err)
 		}
 	}
 
