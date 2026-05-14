@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/task"
 )
 
 func init() {

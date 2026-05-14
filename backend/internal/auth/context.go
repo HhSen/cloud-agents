@@ -2,7 +2,7 @@ package auth
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/db"
 )
 
 type contextKey string

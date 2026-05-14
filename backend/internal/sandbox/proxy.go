@@ -9,11 +9,11 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 	"strings"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/task"
 )
 
 // agentQueryOptions mirrors the QueryOptions schema accepted by claude-agent-server.

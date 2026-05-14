@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/your-org/platform-backend/internal/crypto"
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/crypto"
+	"github.com/l-lab/cloud-agents/internal/db"
 )
 
 const sshConfig = "Host *\n  StrictHostKeyChecking accept-new\n"

@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/auth"
-	"github.com/your-org/platform-backend/internal/db"
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/internal/auth"
+	"github.com/l-lab/cloud-agents/internal/db"
+	"github.com/l-lab/cloud-agents/pkg/config"
 	"gorm.io/gorm"
 )
 

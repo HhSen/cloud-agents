@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/auth"
-	"github.com/your-org/platform-backend/internal/task"
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/internal/auth"
+	"github.com/l-lab/cloud-agents/internal/task"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 )
 
 var validGitURL = regexp.MustCompile("^(https?://|git@|ssh://)[^\\s;|&$`()\\n\\r<>]+$")

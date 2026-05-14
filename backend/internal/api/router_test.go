@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/pkg/config"
 )
 
 func newTestRouter(corsOrigin string) http.Handler {

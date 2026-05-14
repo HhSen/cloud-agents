@@ -11,9 +11,9 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/your-org/platform-backend/internal/auth"
-	"github.com/your-org/platform-backend/internal/db"
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/internal/auth"
+	"github.com/l-lab/cloud-agents/internal/db"
+	"github.com/l-lab/cloud-agents/pkg/config"
 	"gorm.io/gorm"
 )
 

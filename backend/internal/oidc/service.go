@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	coreidoidc "github.com/coreos/go-oidc/v3/oidc"
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/pkg/config"
 	"golang.org/x/oauth2"
 )
 

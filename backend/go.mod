@@ -1,4 +1,4 @@
-module github.com/your-org/platform-backend
+module github.com/l-lab/cloud-agents
 
 go 1.25.0
 

@@ -4,10 +4,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/auth"
-	"github.com/your-org/platform-backend/internal/crypto"
-	"github.com/your-org/platform-backend/internal/db"
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/internal/auth"
+	"github.com/l-lab/cloud-agents/internal/crypto"
+	"github.com/l-lab/cloud-agents/internal/db"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 	"golang.org/x/crypto/ssh"
 )
 

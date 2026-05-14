@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/your-org/platform-backend/internal/storage"
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/internal/storage"
+	"github.com/l-lab/cloud-agents/pkg/config"
 )
 
 // TestConnection verifies that the S3 client can reach the OFS endpoint.

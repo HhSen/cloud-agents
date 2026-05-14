@@ -13,15 +13,15 @@ import (
 	"os"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/your-org/platform-backend/internal/api"
-	"github.com/your-org/platform-backend/internal/db"
-	oidcpkg "github.com/your-org/platform-backend/internal/oidc"
-	"github.com/your-org/platform-backend/internal/sandbox"
-	ssopkg "github.com/your-org/platform-backend/internal/sso"
-	"github.com/your-org/platform-backend/internal/storage"
-	"github.com/your-org/platform-backend/internal/task"
-	"github.com/your-org/platform-backend/pkg/config"
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/internal/api"
+	"github.com/l-lab/cloud-agents/internal/db"
+	oidcpkg "github.com/l-lab/cloud-agents/internal/oidc"
+	"github.com/l-lab/cloud-agents/internal/sandbox"
+	ssopkg "github.com/l-lab/cloud-agents/internal/sso"
+	"github.com/l-lab/cloud-agents/internal/storage"
+	"github.com/l-lab/cloud-agents/internal/task"
+	"github.com/l-lab/cloud-agents/pkg/config"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 )
 
 func main() {

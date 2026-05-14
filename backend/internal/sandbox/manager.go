@@ -13,8 +13,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/db"
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/db"
+	"github.com/l-lab/cloud-agents/internal/task"
 	"gorm.io/gorm"
 )
 

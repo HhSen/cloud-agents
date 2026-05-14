@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/your-org/platform-backend/internal/db"
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/db"
+	"github.com/l-lab/cloud-agents/internal/task"
 )
 
 // mockLC is a test double for the lifecycleClient interface.

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 	"time"
 
 	"github.com/go-redis/redis/v8"

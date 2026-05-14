@@ -9,7 +9,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/db"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/your-org/platform-backend/internal/storage"
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/storage"
+	"github.com/l-lab/cloud-agents/internal/task"
 )
 
 // TaskStore is the storage interface for Task records.

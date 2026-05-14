@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/db"
 	"gorm.io/gorm"
 )
 

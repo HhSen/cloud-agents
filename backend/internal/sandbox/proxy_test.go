@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/your-org/platform-backend/internal/task"
+	"github.com/l-lab/cloud-agents/internal/task"
 )
 
 func proxyTask(baseURL string, headers map[string]string, sessionID string) *task.Task {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/pkg/config"
 )
 
 type CheckCodeResponse struct {

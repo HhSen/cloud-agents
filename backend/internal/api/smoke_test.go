@@ -19,13 +19,13 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/your-org/platform-backend/internal/task"
-	"github.com/your-org/platform-backend/pkg/config"
+	"github.com/l-lab/cloud-agents/internal/task"
+	"github.com/l-lab/cloud-agents/pkg/config"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/db"
 )
 
 // ---- fake upstream (claude-agent-server) ----

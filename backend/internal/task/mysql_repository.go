@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/your-org/platform-backend/pkg/logger"
+	"github.com/l-lab/cloud-agents/pkg/logger"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/your-org/platform-backend/internal/db"
+	"github.com/l-lab/cloud-agents/internal/db"
 	"gorm.io/gorm"
 )
 
