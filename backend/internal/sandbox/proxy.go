@@ -9,9 +9,10 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/l-lab/cloud-agents/pkg/logger"
 	"strings"
 	"time"
+
+	"github.com/l-lab/cloud-agents/pkg/logger"
 
 	"github.com/l-lab/cloud-agents/internal/task"
 )
@@ -121,6 +122,7 @@ func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, 
 	flusher, _ := w.(http.Flusher)
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024) // 1 MiB
 	var currentEvent string
 
 	for scanner.Scan() {
