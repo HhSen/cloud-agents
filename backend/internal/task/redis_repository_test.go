@@ -29,7 +29,7 @@ func TestRedisCreate_StoresTask(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, err := repo.Create(ctx, "alice", map[string]string{"FOO": "bar"})
+	tsk, err := repo.Create(ctx, "alice", map[string]string{"FOO": "bar"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestRedisGet_Found(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	created, _ := repo.Create(ctx, "bob", nil)
+	created, _ := repo.Create(ctx, "bob", nil, "")
 	got, err := repo.Get(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -82,7 +82,7 @@ func TestRedisDelete_Removes(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	if err := repo.Delete(ctx, tsk.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestRedisSetRunning_Persists(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	headers := map[string]string{"Authorization": "Bearer tok"}
 	tsk.SetRunning("sb-1", "http://proxy/", headers)
 
@@ -127,7 +127,7 @@ func TestRedisSetSessionID_WriteOnce(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	tsk.SetSessionID("first")
 	tsk.SetSessionID("second") // should be a no-op
 
@@ -141,7 +141,7 @@ func TestRedisEnsureProvisioned_CalledOnce(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 
 	var callCount atomic.Int32
 	var wg sync.WaitGroup
@@ -176,7 +176,7 @@ func TestRedisEnsureProvisioned_PersistRunningFailurePreventsProvisionedFlag(t *
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	err := tsk.EnsureProvisioned(func() error {
 		// fn succeeds but never calls SetRunning — state stays StateNew in Redis.
 		return nil
@@ -196,7 +196,7 @@ func TestRedisEnsureProvisioned_FailedFnRetried(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	want := errors.New("provision failed")
 
 	err := tsk.EnsureProvisioned(func() error { return want })
@@ -215,7 +215,7 @@ func TestRedisResetIfExpired_NotProvisionedSkipsCheck(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil) // provisioned=0, no sandbox
+	tsk, _ := repo.Create(ctx, "", nil, "") // provisioned=0, no sandbox
 
 	called := false
 	err := tsk.ResetIfExpired(func(_ string) (bool, error) {
@@ -234,7 +234,7 @@ func TestRedisResetIfExpired_ResetsWhenNotAlive(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-expired", "http://proxy/", map[string]string{})
 		return nil
@@ -261,7 +261,7 @@ func TestRedisResetIfExpired_NoResetWhenAlive(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-alive", "http://proxy/", map[string]string{})
 		return nil
@@ -282,7 +282,7 @@ func TestRedisResetForReprovisioning_ClearsState(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	tsk, _ := repo.Create(ctx, "", nil)
+	tsk, _ := repo.Create(ctx, "", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-1", "http://proxy/", map[string]string{})
 		return nil
@@ -316,15 +316,15 @@ func TestRedisStateString_AllCombinations(t *testing.T) {
 		{func(t *Task) { t.SetProvisioning() }, "s1", "resuming"},
 		{func(t *Task) { t.SetRunning("sb", "url", nil) }, "", "idle"},
 		{func(t *Task) { t.SetRunning("sb", "url", nil) }, "s1", "active"},
-		{func(t *Task) { t.SetError() }, "", "error"},
-		{func(t *Task) { t.SetError() }, "s1", "error"},
+		{func(t *Task) { t.SetError("") }, "", "error"},
+		{func(t *Task) { t.SetError("") }, "s1", "error"},
 	}
 
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
 	for _, tc := range cases {
-		tsk, _ := repo.Create(ctx, "", nil)
+		tsk, _ := repo.Create(ctx, "", nil, "")
 		tc.setupFn(tsk)
 		if tc.sessionID != "" {
 			tsk.SetSessionID(tc.sessionID)

@@ -134,11 +134,23 @@ func main() {
 		logger.Default().Info("SSO enabled", "base_url", cfg.SSO.BaseURL)
 	}
 
+	if cfg.Security.SSHKeySecret == "" {
+		var count int64
+		gormDB.Model(&db.User{}).Where("ssh_private_key_enc != ''").Count(&count)
+		if count > 0 {
+			logger.Default().Error("security.ssh_key_secret must be set — some users have stored SSH keys")
+			os.Exit(1)
+		}
+	}
+
 	mgr := sandbox.NewManager(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey, baseEnv, cfg.Sandbox.Image, platform, cfg.Sandbox.MemoryLimit, cfg.Sandbox.CPULimit)
 
 	kindsRepo := db.NewKindsRepository(gormDB)
 	if ofsClient != nil {
 		mgr.WithResources(kindsRepo, ofsClient)
+	}
+	if cfg.Security.SSHKeySecret != "" {
+		mgr.WithSSHKeys(gormDB, cfg.Security.SSHKeySecret)
 	}
 
 	router := api.NewRouter(api.RouterDeps{

@@ -22,14 +22,15 @@ const (
 )
 
 type User struct {
-	ID           uint       `gorm:"primaryKey;autoIncrement"`
-	UserName     string     `gorm:"uniqueIndex;size:100;not null"`
-	Email        string     `gorm:"size:255;not null"`
-	PasswordHash string     `gorm:"size:255;not null"`
-	IsActive     bool       `gorm:"default:true"`
-	AuthSource   AuthSource `gorm:"size:20;not null;default:'unknown'"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  uint       `gorm:"primaryKey;autoIncrement"`
+	UserName            string     `gorm:"uniqueIndex;size:100;not null"`
+	Email               string     `gorm:"size:255;not null"`
+	PasswordHash        string     `gorm:"size:255;not null"`
+	IsActive            bool       `gorm:"default:true"`
+	AuthSource          AuthSource `gorm:"size:20;not null;default:'unknown'"`
+	SSHPrivateKeyEnc    string     `gorm:"column:ssh_private_key_enc;type:text"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // FindOrCreate looks up a user by username; creates one if absent.

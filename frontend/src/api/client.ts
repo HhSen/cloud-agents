@@ -43,13 +43,27 @@ export async function register(username: string, password: string, email?: strin
   return access_token
 }
 
-export async function createTask(username: string): Promise<string> {
+export interface CreateTaskOptions {
+  title?: string
+  gitUrl?: string
+  env?: Record<string, string>
+}
+
+export async function createTask(username: string, options?: CreateTaskOptions): Promise<string> {
   const res = await fetch(`${BASE}/api/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({
+      username,
+      title: options?.title,
+      git_url: options?.gitUrl,
+      env: options?.env,
+    }),
   })
-  if (!res.ok) throw new Error('Failed to create task')
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to create task')
+  }
   const { id } = await res.json() as { id: string }
   return id
 }
@@ -89,6 +103,8 @@ export interface TaskSummary {
   id: string
   title: string
   state: string
+  git_url?: string
+  error_msg?: string
   created_at: string
   updated_at: string
 }
@@ -213,6 +229,8 @@ export interface Task {
   session_id: string
   title: string
   cwd: string
+  git_url?: string
+  error_msg?: string
 }
 
 export async function getTask(taskId: string): Promise<Task> {
@@ -239,4 +257,28 @@ export async function readFile(taskId: string, filePath: string): Promise<string
   })
   if (!res.ok) throw new Error('Failed to read file')
   return res.text()
+}
+
+export interface UserSettings {
+  has_ssh_key: boolean
+}
+
+export async function getUserSettings(): Promise<UserSettings> {
+  const res = await fetch(`${BASE}/api/user/settings`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error('Failed to get user settings')
+  return res.json() as Promise<UserSettings>
+}
+
+export async function updateUserSettings(body: { ssh_private_key?: string }): Promise<void> {
+  const res = await fetch(`${BASE}/api/user/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to update settings')
+  }
 }

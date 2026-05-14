@@ -14,7 +14,7 @@ import (
 
 func proxyTask(baseURL string, headers map[string]string, sessionID string) *task.Task {
 	s := task.NewStore()
-	t := s.Create("", nil)
+	t := s.Create("", nil, "")
 	t.SetRunning("sb1", baseURL, headers)
 	if sessionID != "" {
 		t.SetSessionID(sessionID)

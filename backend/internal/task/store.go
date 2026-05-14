@@ -57,6 +57,8 @@ type Task struct {
 	sessionID string
 	title     string            // set by the sandbox once the task has a name
 	extraEnv  map[string]string // per-request env vars merged into sandbox at provision time
+	gitURL    string            // optional repo to clone at provision time; immutable after creation
+	errorMsg  string            // last error message; set when state transitions to StateError
 
 	// provisionMu serialises provisioning and reset. Lock order: provisionMu → mu.
 	// Not used when ops != nil (Redis lock replaces it).
@@ -86,13 +88,26 @@ func (t *Task) SetRunning(sandboxID, proxyBaseURL string, proxyHeaders map[strin
 	}
 }
 
-func (t *Task) SetError() {
+func (t *Task) SetError(msg string) {
 	t.mu.Lock()
 	t.state = StateError
+	t.errorMsg = msg
 	t.mu.Unlock()
 	if t.ops != nil {
-		t.ops.persistError()
+		t.ops.persistError(msg)
 	}
+}
+
+func (t *Task) GetGitURL() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.gitURL
+}
+
+func (t *Task) GetErrorMsg() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.errorMsg
 }
 
 func (t *Task) SetProvisioning() {
@@ -298,12 +313,13 @@ func NewStore() *Store {
 	return &Store{tasks: make(map[string]*Task)}
 }
 
-func (s *Store) Create(username string, extraEnv map[string]string) *Task {
+func (s *Store) Create(username string, extraEnv map[string]string, gitURL string) *Task {
 	t := &Task{
 		ID:       uuid.New().String(),
 		Username: username,
 		state:    StateNew,
 		extraEnv: extraEnv,
+		gitURL:   gitURL,
 	}
 	s.mu.Lock()
 	s.tasks[t.ID] = t
@@ -333,8 +349,8 @@ func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{store: NewStore()}
 }
 
-func (r *MemoryRepository) Create(_ context.Context, username string, extraEnv map[string]string) (*Task, error) {
-	return r.store.Create(username, extraEnv), nil
+func (r *MemoryRepository) Create(_ context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error) {
+	return r.store.Create(username, extraEnv, gitURL), nil
 }
 
 func (r *MemoryRepository) Get(_ context.Context, id string) (*Task, error) {

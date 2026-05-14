@@ -10,7 +10,7 @@ import (
 //   - RedisRepository  — legacy all-Redis storage (tasks + sandbox in Redis)
 //   - MySQLRepository  — production: durable fields in MySQL, sandbox mapping in Redis
 type Repository interface {
-	Create(ctx context.Context, username string, extraEnv map[string]string) (*Task, error)
+	Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error)
 	// Get returns nil, nil when the task does not exist.
 	Get(ctx context.Context, id string) (*Task, error)
 	Delete(ctx context.Context, id string) error
@@ -23,6 +23,8 @@ type TaskSummary struct {
 	ID        string
 	Title     string
 	State     string
+	GitURL    string
+	ErrorMsg  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -33,7 +35,7 @@ type TaskSummary struct {
 type taskOps interface {
 	persistRunning(sandboxID, proxyBaseURL string, proxyHeaders map[string]string)
 	persistProvisioning()
-	persistError()
+	persistError(msg string)
 	// persistSessionID writes sessionID only if the field is currently empty.
 	// Returns true if the value was actually written (was empty before).
 	persistSessionID(sessionID string) bool

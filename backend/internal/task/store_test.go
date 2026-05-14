@@ -10,7 +10,7 @@ import (
 func TestCreate_StoresTask(t *testing.T) {
 	s := NewStore()
 	env := map[string]string{"FOO": "bar"}
-	task := s.Create("alice", env)
+	task := s.Create("alice", env, "")
 
 	if task.ID == "" {
 		t.Fatal("expected non-empty ID")
@@ -29,7 +29,7 @@ func TestCreate_StoresTask(t *testing.T) {
 
 func TestCreate_NilEnv(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	if task.ExtraEnv() != nil {
 		t.Fatalf("expected nil ExtraEnv, got %v", task.ExtraEnv())
 	}
@@ -44,7 +44,7 @@ func TestGet_Missing(t *testing.T) {
 
 func TestGet_Found(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	got := s.Get(task.ID)
 	if got != task {
 		t.Fatal("Get did not return the created task")
@@ -53,7 +53,7 @@ func TestGet_Found(t *testing.T) {
 
 func TestDelete_Removes(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	s.Delete(task.ID)
 	if s.Get(task.ID) != nil {
 		t.Fatal("expected nil after Delete")
@@ -62,7 +62,7 @@ func TestDelete_Removes(t *testing.T) {
 
 func TestSetRunning(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 
 	headers := map[string]string{"Authorization": "Bearer tok"}
 	task.SetRunning("sandbox-1", "http://proxy/", headers)
@@ -84,8 +84,8 @@ func TestSetRunning(t *testing.T) {
 
 func TestSetError(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
-	task.SetError()
+	task := s.Create("", nil, "")
+	task.SetError("")
 	if task.GetState() != StateError {
 		t.Fatalf("expected StateError, got %v", task.GetState())
 	}
@@ -93,7 +93,7 @@ func TestSetError(t *testing.T) {
 
 func TestEnsureProvisioned_CalledOnce(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 
 	var callCount atomic.Int32
 	var wg sync.WaitGroup
@@ -118,7 +118,7 @@ func TestEnsureProvisioned_CalledOnce(t *testing.T) {
 // provisioned stays false and each subsequent caller retries fn independently.
 func TestEnsureProvisioned_FailedFnRetried(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	want := errors.New("provision failed")
 
 	var wg sync.WaitGroup
@@ -142,7 +142,7 @@ func TestEnsureProvisioned_FailedFnRetried(t *testing.T) {
 
 func TestResetForReprovisioning_ClearsState(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 
 	if err := task.EnsureProvisioned(func() error {
 		task.SetRunning("sb-1", "http://proxy/", map[string]string{"k": "v"})
@@ -176,7 +176,7 @@ func TestResetForReprovisioning_ClearsState(t *testing.T) {
 
 func TestResetIfExpired_ResetsWhenNotAlive(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	task.EnsureProvisioned(func() error {
 		task.SetRunning("sb-1", "http://proxy/", map[string]string{})
 		return nil
@@ -196,7 +196,7 @@ func TestResetIfExpired_ResetsWhenNotAlive(t *testing.T) {
 
 func TestResetIfExpired_NoResetWhenAlive(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	task.EnsureProvisioned(func() error {
 		task.SetRunning("sb-1", "http://proxy/", map[string]string{})
 		return nil
@@ -213,7 +213,7 @@ func TestResetIfExpired_NoResetWhenAlive(t *testing.T) {
 
 func TestResetIfExpired_NoResetWhenNotProvisioned(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	called := false
 
 	err := task.ResetIfExpired(func(_ string) (bool, error) {
@@ -230,7 +230,7 @@ func TestResetIfExpired_NoResetWhenNotProvisioned(t *testing.T) {
 
 func TestResetIfExpired_ErrorPreservesState(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	task.EnsureProvisioned(func() error {
 		task.SetRunning("sb-1", "http://proxy/", map[string]string{})
 		return nil
@@ -248,7 +248,7 @@ func TestResetIfExpired_ErrorPreservesState(t *testing.T) {
 
 func TestResetIfExpired_ConcurrentSafeOnlyResetsOnce(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	task.EnsureProvisioned(func() error {
 		task.SetRunning("sb-expired", "http://proxy/", map[string]string{})
 		return nil
@@ -275,7 +275,7 @@ func TestResetIfExpired_ConcurrentSafeOnlyResetsOnce(t *testing.T) {
 
 func TestResetForReprovisioning_AllowsReprovision(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 
 	var callCount atomic.Int32
 
@@ -314,12 +314,12 @@ func TestComputeStateStr_AllCombinations(t *testing.T) {
 		{func(t *Task) { t.SetProvisioning() }, "s1", "resuming"},
 		{func(t *Task) { t.SetRunning("sb", "url", nil) }, "", "idle"},
 		{func(t *Task) { t.SetRunning("sb", "url", nil) }, "s1", "active"},
-		{func(t *Task) { t.SetError() }, "", "error"},
-		{func(t *Task) { t.SetError() }, "s1", "error"},
+		{func(t *Task) { t.SetError("") }, "", "error"},
+		{func(t *Task) { t.SetError("") }, "s1", "error"},
 	}
 	for _, tc := range cases {
 		s := NewStore()
-		task := s.Create("", nil)
+		task := s.Create("", nil, "")
 		tc.setupFn(task)
 		if tc.sessionID != "" {
 			task.SetSessionID(tc.sessionID)
@@ -333,7 +333,7 @@ func TestComputeStateStr_AllCombinations(t *testing.T) {
 
 func TestSetSessionID_NoOverwrite(t *testing.T) {
 	s := NewStore()
-	task := s.Create("", nil)
+	task := s.Create("", nil, "")
 	task.SetSessionID("first")
 	task.SetSessionID("second")
 	if got := task.GetSessionID(); got != "first" {

@@ -7,6 +7,8 @@ New product platform built on top of OpenSandbox. First feature: chat with a Cla
 - [overview.md](./overview.md) — Architecture, flow, repo layout, shared API contract
 - [frontend.md](./frontend.md) — Vite+React+shadcn frontend: step-by-step
 - [frontend-resources.md](./frontend-resources.md) — Resources page (skills + MCP management UI)
+- [ssh-key-management.md](./ssh-key-management.md) — Per-user SSH key storage + sandbox injection
+- [git-task-integration.md](./git-task-integration.md) — Optional git URL per task; clone on provision (depends on SSH plan)
 
 ## Archived (implemented)
 

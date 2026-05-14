@@ -42,3 +42,6 @@ auth:
   token_ttl_seconds: 86400
   state_ttl_seconds: 600
   frontend_url: "http://localhost:5173"
+
+security:
+  ssh_key_secret: "068d2bc05121f2e6c0e99d73b6c0d692c0f7a8cf5ed2af279f380ce090707db5"

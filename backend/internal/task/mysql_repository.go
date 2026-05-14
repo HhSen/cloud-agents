@@ -29,7 +29,7 @@ func NewMySQLRepository(db *gorm.DB, rdb *redis.Client) *MySQLRepository {
 	return &MySQLRepository{db: db, rdb: rdb}
 }
 
-func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv map[string]string) (*Task, error) {
+func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error) {
 	var user db.User
 	if err := r.db.WithContext(ctx).Where("user_name = ?", username).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("look up user %s: %w", username, err)
@@ -47,6 +47,7 @@ func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv 
 		UserID:   user.ID,
 		State:    int(StateNew),
 		ExtraEnv: string(extraEnvJSON),
+		GitURL:   gitURL,
 	}
 	if err := r.db.WithContext(ctx).Create(&rec).Error; err != nil {
 		return nil, fmt.Errorf("create task: %w", err)
@@ -58,6 +59,7 @@ func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv 
 		UserID:   user.ID,
 		state:    StateNew,
 		extraEnv: extraEnv,
+		gitURL:   gitURL,
 	}
 	t.ops = &mysqlTaskOps{db: r.db, rdb: r.rdb, lock: redisLock{rdb: r.rdb, taskID: id}}
 	return t, nil
@@ -109,6 +111,8 @@ func (r *MySQLRepository) Get(ctx context.Context, id string) (*Task, error) {
 		title:        rec.Title,
 		extraEnv:     extraEnv,
 		provisioned:  rec.Provisioned,
+		gitURL:       rec.GitURL,
+		errorMsg:     rec.ErrorMsg,
 	}
 	t.ops = &mysqlTaskOps{db: r.db, rdb: r.rdb, lock: redisLock{rdb: r.rdb, taskID: id}}
 	return t, nil
@@ -137,6 +141,8 @@ func (r *MySQLRepository) List(ctx context.Context, username string) ([]TaskSumm
 			ID:        rec.ID,
 			Title:     rec.Title,
 			State:     StateString(State(rec.State), rec.SessionID != ""),
+			GitURL:    rec.GitURL,
+			ErrorMsg:  rec.ErrorMsg,
 			CreatedAt: rec.CreatedAt,
 			UpdatedAt: rec.UpdatedAt,
 		}
@@ -196,11 +202,11 @@ func (o *mysqlTaskOps) persistProvisioning() {
 	}
 }
 
-func (o *mysqlTaskOps) persistError() {
+func (o *mysqlTaskOps) persistError(msg string) {
 	ctx := context.Background()
 	if err := o.db.WithContext(ctx).Model(&db.Task{}).
 		Where("id = ?", o.lock.taskID).
-		Update("state", int(StateError)).Error; err != nil {
+		Updates(map[string]any{"state": int(StateError), "error_msg": msg}).Error; err != nil {
 		logger.Default().Error("mysql: persist error state", "task_id", o.lock.taskID, "err", err)
 	}
 }

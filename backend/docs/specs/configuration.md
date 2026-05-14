@@ -171,6 +171,24 @@ Optional. SSO routes are registered only when `app_id` is non-empty.
 
 ---
 
+## `security`
+
+Optional. Controls per-user SSH key encryption for private git repository access.
+
+| Field | Description |
+|---|---|
+| `ssh_key_secret` | 32-byte AES-256 key encoded as 64 hex characters. Used to encrypt/decrypt per-user SSH private keys stored in `users.ssh_private_key_enc`. Generate with `openssl rand -hex 32`. |
+
+**Startup behaviour:**
+- If `ssh_key_secret` is blank and no users have a stored key: server starts normally (feature is inactive).
+- If `ssh_key_secret` is blank and any user has a stored key: server exits with an error. This prevents silently failing to decrypt keys after a configuration change.
+
+When configured, `mgr.WithSSHKeys(gormDB, sshKeySecret)` is called at startup so that the sandbox manager can inject the decrypted key into each sandbox at provision time.
+
+See [`ssh-key-management.md`](ssh-key-management.md) for the full design.
+
+---
+
 ## Full annotated example
 
 ```yaml
@@ -225,4 +243,7 @@ sso:
   app_id: ""
   app_key: ""
   callback_url: ""        # must match UPM registration
+
+security:
+  ssh_key_secret: ""      # 32-byte hex; generate with: openssl rand -hex 32
 ```

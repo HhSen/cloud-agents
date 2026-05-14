@@ -66,3 +66,6 @@ sso:
   app_id: ""                                 # assigned by UPM when you register the application
   app_key: ""                                # assigned by UPM
   callback_url: ""                           # e.g. http://your-service/api/auth/sso/callback — must match UPM registration
+
+security:
+  ssh_key_secret: ""   # 32-byte hex; generate with: openssl rand -hex 32

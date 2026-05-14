@@ -29,11 +29,11 @@ type mockStore struct {
 	task *task.Task
 }
 
-func (m *mockStore) Create(_ context.Context, username string, env map[string]string) (*task.Task, error) {
+func (m *mockStore) Create(_ context.Context, username string, env map[string]string, gitURL string) (*task.Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := task.NewStore()
-	m.task = s.Create(username, env)
+	m.task = s.Create(username, env, gitURL)
 	return m.task, nil
 }
 
@@ -96,7 +96,7 @@ func newHandler(store TaskStore, mgr SandboxManager, proxy MessageProxy) *Handle
 
 func taskWithSandbox(sandboxID, sessionID string) *task.Task {
 	s := task.NewStore()
-	t := s.Create("", nil)
+	t := s.Create("", nil, "")
 	t.SetRunning(sandboxID, "http://proxy/", map[string]string{})
 	if sessionID != "" {
 		t.SetSessionID(sessionID)
@@ -108,7 +108,7 @@ func taskWithSandbox(sandboxID, sessionID string) *task.Task {
 // provisioned=true, simulating a session that was previously fully provisioned.
 func provisionedTask(sandboxID string) *task.Task {
 	s := task.NewStore()
-	t := s.Create("", nil)
+	t := s.Create("", nil, "")
 	t.EnsureProvisioned(func() error {
 		t.SetRunning(sandboxID, "http://proxy/", map[string]string{})
 		return nil
@@ -318,7 +318,7 @@ func TestSendMessage_NoPromptField(t *testing.T) {
 
 func TestSendMessage_ProvisionError(t *testing.T) {
 	s := task.NewStore()
-	tsk := s.Create("", nil)
+	tsk := s.Create("", nil, "")
 	store := &mockStore{task: tsk}
 	mgr := &mockManager{provisionErr: errors.New("quota exceeded")}
 	h := newHandler(store, mgr, &mockProxy{})
@@ -340,7 +340,7 @@ func TestSendMessage_ProvisionError(t *testing.T) {
 
 func TestSendMessage_Success(t *testing.T) {
 	s := task.NewStore()
-	tsk := s.Create("", nil)
+	tsk := s.Create("", nil, "")
 	store := &mockStore{task: tsk}
 	h := newHandler(store, &mockManager{}, &mockProxy{})
 
@@ -358,7 +358,7 @@ func TestSendMessage_Success(t *testing.T) {
 
 func TestSendMessage_ClientDisconnect(t *testing.T) {
 	s := task.NewStore()
-	tsk := s.Create("", nil)
+	tsk := s.Create("", nil, "")
 	store := &mockStore{task: tsk}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -376,7 +376,7 @@ func TestSendMessage_ClientDisconnect(t *testing.T) {
 
 func TestSendMessage_ProvisionCalledOnce(t *testing.T) {
 	s := task.NewStore()
-	tsk := s.Create("", nil)
+	tsk := s.Create("", nil, "")
 	store := &mockStore{task: tsk}
 	mgr := &mockManager{}
 	h := newHandler(store, mgr, &mockProxy{})
@@ -481,7 +481,7 @@ func TestDeleteTask_NotFound(t *testing.T) {
 
 func TestDeleteTask_NoSandbox(t *testing.T) {
 	s := task.NewStore()
-	tsk := s.Create("", nil)
+	tsk := s.Create("", nil, "")
 	store := &mockStore{task: tsk}
 	mgr := &mockManager{}
 	h := newHandler(store, mgr, &mockProxy{})

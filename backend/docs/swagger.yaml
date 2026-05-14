@@ -1,5 +1,20 @@
 basePath: /
 definitions:
+  internal_api.FileInfo:
+    properties:
+      isDir:
+        type: boolean
+      modTime:
+        type: string
+      mode:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
   internal_api.createResourceRequest:
     properties:
       content:
@@ -22,6 +37,10 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      git_url:
+        type: string
+      title:
+        type: string
       username:
         type: string
     required:
@@ -39,6 +58,12 @@ definitions:
     type: object
   internal_api.getTaskResponse:
     properties:
+      cwd:
+        type: string
+      error_msg:
+        type: string
+      git_url:
+        type: string
       id:
         type: string
       sandbox_id:
@@ -140,6 +165,10 @@ definitions:
     properties:
       created_at:
         type: string
+      error_msg:
+        type: string
+      git_url:
+        type: string
       id:
         type: string
       state:
@@ -164,6 +193,16 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  internal_api.updateUserSettingsRequest:
+    properties:
+      ssh_private_key:
+        type: string
+    type: object
+  internal_api.userSettingsResponse:
+    properties:
+      has_ssh_key:
+        type: boolean
     type: object
   internal_oidc.cliLoginRequest:
     properties:
@@ -608,6 +647,42 @@ paths:
       summary: Update a resource
       tags:
       - resources
+  /api/resources/{id}/content:
+    get:
+      description: Reads and returns the SKILL.md content for a skill resource from
+        OFS.
+      parameters:
+      - description: Resource ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: SKILL.md content
+          schema:
+            type: string
+        "400":
+          description: resource is not a skill
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "404":
+          description: resource not found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "503":
+          description: resource storage not configured
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Get skill SKILL.md content
+      tags:
+      - resources
   /api/resources/{id}/files/{filepath}:
     delete:
       description: Remove a file from a skill's manifest. SKILL.md cannot be removed;
@@ -713,6 +788,58 @@ paths:
       summary: Upload or overwrite a skill file
       tags:
       - resources
+  /api/resources/zip:
+    post:
+      consumes:
+      - multipart/form-data
+      description: Create a multi-file skill by uploading a zip. The zip must contain
+        SKILL.md at root. Other files are stored as companion files (max 20 total,
+        1 MiB each).
+      parameters:
+      - description: Skill name ([a-zA-Z0-9_-]+)
+        in: formData
+        name: name
+        required: true
+        type: string
+      - description: Zip archive
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.resourceResponse'
+        "400":
+          description: invalid name, missing SKILL.md, or bad zip
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "413":
+          description: zip or file too large
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "422":
+          description: too many files
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "500":
+          description: storage error
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "503":
+          description: resource storage not configured
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Create a skill from a zip archive
+      tags:
+      - resources
   /api/runtime-config:
     get:
       description: Returns which login modes (password, OIDC, SSO) are available to
@@ -745,7 +872,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Create a new task with an optional username and environment variables.
+      description: Create a new task. Optional git_url clones the repository at provision
+        time. Private repos (git@ or ssh://) require an SSH key to be configured.
       parameters:
       - description: Create task request
         in: body
@@ -761,9 +889,9 @@ paths:
           schema:
             $ref: '#/definitions/internal_api.createTaskResponse'
         "400":
-          description: invalid request body
+          description: invalid request body or missing SSH key for private repo
           schema:
-            type: string
+            $ref: '#/definitions/internal_api.errorResponse'
         "500":
           description: failed to create task
           schema:
@@ -818,6 +946,40 @@ paths:
           schema:
             type: string
       summary: Get a task
+      tags:
+      - tasks
+  /api/tasks/{id}/execd/{path}:
+    get:
+      description: Forwards any method+path to the execd daemon (port 44772) inside
+        the task's sandbox. Supports GET /files/search, GET /files/download, POST
+        /directories, etc.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Execd sub-path (e.g. files/search)
+        in: path
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "404":
+          description: task not found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "409":
+          description: sandbox not running
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "502":
+          description: execd unreachable
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Proxy execd filesystem API
       tags:
       - tasks
   /api/tasks/{id}/history:
@@ -970,6 +1132,125 @@ paths:
       summary: Respond to a pending AskUserQuestion request
       tags:
       - tasks
+  /api/tasks/{id}/workspace/file:
+    get:
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute file path
+        in: query
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+        "400":
+          description: path is required
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "404":
+          description: task not found or file not found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "409":
+          description: OFS not configured
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Download workspace file via OFS
+      tags:
+      - tasks
+  /api/tasks/{id}/workspace/files:
+    get:
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Absolute directory path
+        in: query
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.FileInfo'
+            type: array
+        "400":
+          description: path is required
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "404":
+          description: task not found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "409":
+          description: OFS not configured
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: List workspace directory via OFS
+      tags:
+      - tasks
+  /api/user/settings:
+    get:
+      description: Returns whether the authenticated user has an SSH key configured.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.userSettingsResponse'
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Get user settings
+      tags:
+      - user
+    put:
+      consumes:
+      - application/json
+      description: Save or clear the user's SSH private key. Empty string clears the
+        stored key.
+      parameters:
+      - description: Settings update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateUserSettingsRequest'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: invalid PEM or request body
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Update user settings
+      tags:
+      - user
   /health:
     get:
       description: Liveness probe — returns ok when the server is up.

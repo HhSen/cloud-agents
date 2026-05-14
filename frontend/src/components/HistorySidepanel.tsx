@@ -1,4 +1,4 @@
-import { PenLine, Trash2 } from 'lucide-react'
+import { GitBranch, PenLine, Trash2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { TaskSummary } from '@/api/client'
@@ -9,6 +9,12 @@ interface Props {
   onSelectTask: (id: string) => void
   onNewChat: () => void
   onDeleteTask: (id: string) => void
+}
+
+function repoName(url: string): string {
+  const stripped = url.replace(/\.git$/, '')
+  const last = stripped.split(/[/:]/g).filter(Boolean).pop() ?? url
+  return last
 }
 
 function formatDate(dateStr: string): string {
@@ -51,13 +57,20 @@ export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat,
               onClick={() => onSelectTask(task.id)}
             >
               <div className={cn(
-                'truncate text-sm text-neutral-700 pr-5',
+                'flex items-center gap-1 truncate text-sm text-neutral-700 pr-5',
                 activeTaskId === task.id && 'font-medium text-neutral-900'
               )}>
-                {task.title || 'Untitled'}
+                {task.git_url && (
+                  <GitBranch size={11} className="shrink-0 text-neutral-400" />
+                )}
+                <span className="truncate">{task.title || 'Untitled'}</span>
               </div>
               <div className="text-xs text-neutral-400 mt-0.5">
-                {formatDate(task.updated_at)}
+                {task.git_url ? (
+                  <span className="truncate">{repoName(task.git_url)}</span>
+                ) : (
+                  formatDate(task.updated_at)
+                )}
               </div>
               <button
                 onClick={e => {

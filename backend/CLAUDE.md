@@ -33,14 +33,14 @@ swag init -g cmd/server/main.go --output docs --parseDependency --parseInternal
 
 `RouterDeps` collects all top-level dependencies. Several features are **optional** — their nil-ness gates routes and capabilities at startup:
 
-| Dep | nil means |
-|---|---|
-| `DB` | Auth disabled (dev mode) |
-| `OIDCService` | OIDC routes not registered |
-| `SSOService` | SSO routes not registered |
-| `Redis` | CLI OIDC flow unavailable |
-| `KindsRepo` + `OFSWriter` | `/api/resources` routes return 503 |
-| `WorkspaceReader` | `/api/tasks/:id/workspace/*` returns 409 |
+| Dep                       | nil means                                |
+| ------------------------- | ---------------------------------------- |
+| `DB`                      | Auth disabled (dev mode)                 |
+| `OIDCService`             | OIDC routes not registered               |
+| `SSOService`              | SSO routes not registered                |
+| `Redis`                   | CLI OIDC flow unavailable                |
+| `KindsRepo` + `OFSWriter` | `/api/resources` routes return 503       |
+| `WorkspaceReader`         | `/api/tasks/:id/workspace/*` returns 409 |
 
 `Handler` has the same optional wiring via `withResources`, `withWorkspace`, `withExecd` methods called inside `NewRouter`.
 
@@ -48,21 +48,21 @@ swag init -g cmd/server/main.go --output docs --parseDependency --parseInternal
 
 `State` tracks sandbox liveness only. The full API state label is the **combination** of `State` × `sessionID presence`:
 
-| State | `sessionID == ""` | `sessionID set` |
-|---|---|---|
-| `StateNew` | `pending` | `paused` |
-| `StateProvisioning` | `provisioning` | `resuming` |
-| `StateRunning` | `idle` | `active` |
-| `StateError` | `error` | `error` |
+| State               | `sessionID == ""` | `sessionID set` |
+| ------------------- | ----------------- | --------------- |
+| `StateNew`          | `pending`         | `paused`        |
+| `StateProvisioning` | `provisioning`    | `resuming`      |
+| `StateRunning`      | `idle`            | `active`        |
+| `StateError`        | `error`           | `error`         |
 
 `session_id` is **write-once** — never cleared once set (enforced in `SetSessionID` with an in-process mutex check or a Lua HSETNX for Redis). This lets OFS history be read without an active sandbox.
 
 ### Repository backends (`internal/task/`)
 
-| Backend | When used | Storage |
-|---|---|---|
-| `MemoryRepository` | dev / tests | in-process map + `sync.Mutex` |
-| `MySQLRepository` | production | MySQL (durable) + Redis (ephemeral sandbox mapping + lock) |
+| Backend            | When used   | Storage                                                    |
+| ------------------ | ----------- | ---------------------------------------------------------- |
+| `MemoryRepository` | dev / tests | in-process map + `sync.Mutex`                              |
+| `MySQLRepository`  | production  | MySQL (durable) + Redis (ephemeral sandbox mapping + lock) |
 
 `taskOps` is the persistence hook interface attached to each `Task`. `nil` means in-process only; `mysqlTaskOps` / `redisTaskOps` persist mutations to their backing store. Lock order: `provisionMu → mu`.
 
@@ -98,3 +98,6 @@ Proxies any method to port `44772` inside the task's sandbox (`{serverURL}/sandb
 - Prefer concrete types over `map[string]any`; define a struct if one doesn't exist.
 - Always update Swagger annotations in `internal/api/handlers.go` when adding or changing endpoints, then regenerate the docs.
 - `context.Background()` is intentional for provisioning calls — it must survive client disconnects.
+
+
+Actively check documents under `docs/`.

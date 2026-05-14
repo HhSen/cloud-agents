@@ -246,5 +246,15 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     currentAssistantMsgIdRef.current = null
   }, [])
 
-  return { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask }
+  // Start a pre-created task (from the New Task dialog) without loading history.
+  const startTask = useCallback((tid: string) => {
+    setTaskId(tid)
+    setMessages([])
+    setCwd(null)
+    setSandboxState('idle')
+    setSending(false)
+    currentAssistantMsgIdRef.current = null
+  }, [])
+
+  return { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask, startTask }
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/your-org/platform-backend/internal/db"
 	"github.com/your-org/platform-backend/internal/task"
+	"gorm.io/gorm"
 )
 
 // DefaultAgentPort is the port the claude-agent-server listens on inside the sandbox.
@@ -58,6 +59,10 @@ type Manager struct {
 	// optional: set via WithResources to enable skill/MCP injection at provision time.
 	kindsRepo db.KindsRepository
 	ofsReader ofsReader
+
+	// optional: set via WithSSHKeys to enable SSH key injection at provision time.
+	gormDB       *gorm.DB
+	sshKeySecret string
 }
 
 func NewManager(serverURL, apiKey string, baseEnv map[string]string, image string, platform *PlatformSpec, memoryLimit, cpuLimit string) *Manager {
@@ -87,6 +92,13 @@ func NewManager(serverURL, apiKey string, baseEnv map[string]string, image strin
 func (m *Manager) WithResources(kr db.KindsRepository, reader ofsReader) {
 	m.kindsRepo = kr
 	m.ofsReader = reader
+}
+
+// WithSSHKeys enables SSH key injection at provision time.
+// gormDB is used to look up the user's encrypted key; sshKeySecret decrypts it.
+func (m *Manager) WithSSHKeys(gormDB *gorm.DB, sshKeySecret string) {
+	m.gormDB = gormDB
+	m.sshKeySecret = sshKeySecret
 }
 
 // ProvisionForTask creates a sandbox and waits for it to be Running.
@@ -158,6 +170,22 @@ func (m *Manager) ProvisionForTask(ctx context.Context, t *task.Task) error {
 
 	if err := m.healthChecker.WaitForHealth(ctx, proxyBaseURL, proxyHeaders); err != nil {
 		return fmt.Errorf("sandbox %s agent server not ready: %w", sandboxID, err)
+	}
+
+	if m.gormDB != nil && m.sshKeySecret != "" && t.Username != "" {
+		if err := m.maybeInjectSSHKey(ctx, sandboxID, t.Username); err != nil {
+			slog.WarnContext(ctx, "SSH key injection failed (continuing)", "taskID", t.ID, "error", err)
+		}
+	}
+
+	// Clone before injecting resources: git clone requires an empty workspace directory,
+	// but injectResources writes .claude/skills/... into it. Clone first, then overlay resources.
+	if gitURL := t.GetGitURL(); gitURL != "" {
+		taskCWD := fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)
+		slog.InfoContext(ctx, "cloning repository", "taskID", t.ID, "gitURL", gitURL)
+		if err := m.cloneRepo(ctx, sandboxID, gitURL, taskCWD); err != nil {
+			return fmt.Errorf("clone repo: %w", err)
+		}
 	}
 
 	if m.kindsRepo != nil && m.ofsReader != nil && t.UserID != 0 {
@@ -246,9 +274,13 @@ type fileMetadata struct {
 	Mode int    `json:"mode"`
 }
 
-// writeFile uploads content to absPath inside the sandbox via the execd POST /files/upload API.
-// absPath is an absolute container path (e.g. /workspace/alice/task1/.mcp.json).
+// writeFile uploads content to absPath inside the sandbox with default mode 755.
 func (m *Manager) writeFile(ctx context.Context, sandboxID, absPath string, content []byte) error {
+	return m.writeFileWithMode(ctx, sandboxID, absPath, content, 755)
+}
+
+// writeFileWithMode uploads content to absPath with the given Unix mode.
+func (m *Manager) writeFileWithMode(ctx context.Context, sandboxID, absPath string, content []byte, mode int) error {
 	apiURL := fmt.Sprintf("%s/sandboxes/%s/proxy/44772/files/upload", m.serverURL, sandboxID)
 
 	var buf bytes.Buffer
@@ -258,7 +290,7 @@ func (m *Manager) writeFile(ctx context.Context, sandboxID, absPath string, cont
 	if err != nil {
 		return fmt.Errorf("build execd upload metadata field: %w", err)
 	}
-	if err := json.NewEncoder(metaField).Encode(fileMetadata{Path: absPath, Mode: 755}); err != nil {
+	if err := json.NewEncoder(metaField).Encode(fileMetadata{Path: absPath, Mode: mode}); err != nil {
 		return fmt.Errorf("encode execd upload metadata: %w", err)
 	}
 
@@ -296,12 +328,16 @@ type dirPermission struct {
 }
 
 // makeDirAll creates absPath and all missing parent directories inside the sandbox
-// via the execd POST /directories API (mkdir -p semantics).
-// absPath is an absolute container path (e.g. /workspace/alice/task1/.claude/skills).
+// via the execd POST /directories API (mkdir -p semantics) with default mode 755.
 func (m *Manager) makeDirAll(ctx context.Context, sandboxID, absPath string) error {
+	return m.makeDirWithMode(ctx, sandboxID, absPath, 755)
+}
+
+// makeDirWithMode creates absPath (and parent directories) with the given Unix mode.
+func (m *Manager) makeDirWithMode(ctx context.Context, sandboxID, absPath string, mode int) error {
 	apiURL := fmt.Sprintf("%s/sandboxes/%s/proxy/44772/directories", m.serverURL, sandboxID)
 
-	payload, err := json.Marshal(map[string]dirPermission{absPath: {Mode: 755}})
+	payload, err := json.Marshal(map[string]dirPermission{absPath: {Mode: mode}})
 	if err != nil {
 		return fmt.Errorf("marshal mkdir request: %w", err)
 	}
