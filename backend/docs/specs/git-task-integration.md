@@ -117,17 +117,23 @@ Each item in the list includes `git_url` and `error_msg` (omitted when empty).
 
 ## Sandbox Provisioning — Clone Step
 
-Implemented in `internal/sandbox/gitclone.go`. Called from `Manager.ProvisionForTask` after SSH key injection and after `injectResources`, before `t.SetRunning`:
+Implemented in `internal/sandbox/gitclone.go`. Called from `Manager.ProvisionForTask` after SSH key injection, before `injectResources` and `t.SetRunning`:
 
 ```go
 // manager.go (ProvisionForTask)
 if gitURL := t.GetGitURL(); gitURL != "" {
     taskCWD := fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)
-    if err := m.cloneRepo(ctx, sandboxID, gitURL, taskCWD); err != nil {
-        return fmt.Errorf("clone repo: %w", err)
+    if t.GetSessionID() != "" {
+        // resumed task — workspace already has the cloned repo
+    } else {
+        if err := m.cloneRepo(ctx, sandboxID, gitURL, taskCWD); err != nil {
+            return fmt.Errorf("clone repo: %w", err)
+        }
     }
 }
 ```
+
+**Resume case:** When a sandbox expires and the user sends a new message, `EnsureProvisioned` creates a fresh sandbox for the same task. Because the workspace is persisted in OFS and restored into the new container, the git repo already exists. `session_id` is write-once and set after the first successful agent session, so `t.GetSessionID() != ""` is a zero-cost signal that the clone already happened — no extra round-trip to the sandbox required. This prevents the `fatal: destination path '.' already exists and is not an empty directory` error.
 
 `cloneRepo` uses the execd command endpoint, which streams NDJSON events until the process exits:
 

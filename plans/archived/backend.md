@@ -46,12 +46,12 @@ backend/
 
 Config is loaded from a YAML file (`config.yaml` by default). The loader sets these defaults before unmarshalling:
 
-| Field | Default |
-|---|---|
-| `server.port` | `"8081"` |
-| `server.cors_origin` | `"http://localhost:5173"` |
-| `sandbox.server_url` | `"http://localhost:8080"` |
-| `sandbox.image` | `"opensandbox/claude-agent-server:latest"` |
+| Field                | Default                                    |
+| -------------------- | ------------------------------------------ |
+| `server.port`        | `"8091"`                                   |
+| `server.cors_origin` | `"http://localhost:5173"`                  |
+| `sandbox.server_url` | `"http://localhost:8080"`                  |
+| `sandbox.image`      | `"opensandbox/claude-agent-server:latest"` |
 
 All other fields are empty/nil by default.
 

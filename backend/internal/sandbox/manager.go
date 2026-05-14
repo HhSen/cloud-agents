@@ -188,11 +188,18 @@ func (m *Manager) ProvisionForTask(ctx context.Context, t *task.Task) error {
 
 	// Clone before injecting resources: git clone requires an empty workspace directory,
 	// but injectResources writes .claude/skills/... into it. Clone first, then overlay resources.
+	// Skip the clone on resume: session_id is write-once and set after the first successful agent
+	// session, meaning the workspace was already cloned. Re-cloning into a non-empty directory
+	// would fail with "destination path '.' already exists".
 	if gitURL := t.GetGitURL(); gitURL != "" {
 		taskCWD := fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)
-		slog.InfoContext(ctx, "cloning repository", "taskID", t.ID, "gitURL", gitURL)
-		if err := m.cloneRepo(ctx, sandboxID, gitURL, taskCWD); err != nil {
-			return fmt.Errorf("clone repo: %w", err)
+		if t.GetSessionID() != "" {
+			slog.InfoContext(ctx, "resumed task, skipping git clone", "taskID", t.ID)
+		} else {
+			slog.InfoContext(ctx, "cloning repository", "taskID", t.ID, "gitURL", gitURL)
+			if err := m.cloneRepo(ctx, sandboxID, gitURL, taskCWD); err != nil {
+				return fmt.Errorf("clone repo: %w", err)
+			}
 		}
 	}
 

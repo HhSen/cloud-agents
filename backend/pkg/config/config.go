@@ -101,7 +101,7 @@ func Load(path string) (*Config, error) {
 	// Defaults
 	cfg := Config{
 		Server: ServerConfig{
-			Port:       "8081",
+			Port:       "8091",
 			CORSOrigin: "http://localhost:5173",
 		},
 		Sandbox: SandboxConfig{

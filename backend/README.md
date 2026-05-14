@@ -31,7 +31,7 @@ Config is loaded from a YAML file (`config.yaml` by default; override with `-con
 
 ```yaml
 server:
-  port: "8081"                          # default
+  port: "8091"                          # default
   cors_origin: "http://localhost:5173"  # default
 
 sandbox:
@@ -102,11 +102,11 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS l_lab CHARACTER SET utf8mb4 C
 
 Both MySQL and Redis are **required**. The server exits at startup if either is absent or unreachable.
 
-| Store | What it holds |
-|---|---|
-| **MySQL** (`tasks` table) | Durable task fields: id, username, state, title, session_id, extra_env, provisioned |
-| **Redis** (`sandbox:{id}`) | Ephemeral sandbox routing: sandbox_id, proxy_base_url, proxy_headers (7-day TTL) |
-| **Redis** (`task-lock:{id}`) | Distributed provisioning lock (30 s TTL, auto-released on crash) |
+| Store                        | What it holds                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| **MySQL** (`tasks` table)    | Durable task fields: id, username, state, title, session_id, extra_env, provisioned |
+| **Redis** (`sandbox:{id}`)   | Ephemeral sandbox routing: sandbox_id, proxy_base_url, proxy_headers (7-day TTL)    |
+| **Redis** (`task-lock:{id}`) | Distributed provisioning lock (30 s TTL, auto-released on crash)                    |
 
 Without Redis configured, the server falls back to `MemoryRepository` (dev only — all task state lost on restart).
 
@@ -173,35 +173,35 @@ backend/
 
 ## API Endpoints
 
-Interactive docs (Swagger UI) available at **`http://localhost:8081/swagger/index.html`** when the server is running.
+Interactive docs (Swagger UI) available at **`http://localhost:8091/swagger/index.html`** when the server is running.
 
 **Auth endpoints (public)**
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/auth/sso/login` | Redirect to Didi SSO login page (requires `sso.app_id` in config) |
-| `GET` | `/api/auth/sso/callback` | SSO callback — issues app JWT, redirects to `{frontend_url}/login/sso#access_token=…` |
-| `GET` | `/api/auth/oidc/login` | Redirect to OIDC provider (requires `oidc.client_id` in config) |
-| `GET` | `/api/auth/oidc/callback` | OIDC callback — issues app JWT, redirects to `{frontend_url}/login/oidc#access_token=…` |
-| `POST` | `/api/auth/oidc/cli-login` | CLI OIDC — body `{session_id}`, returns `{auth_url}`. Requires Redis. |
-| `GET` | `/api/auth/oidc/cli-callback` | CLI OIDC browser callback — writes token to Redis |
-| `GET` | `/api/auth/oidc/cli-poll` | CLI OIDC poll — `?session_id=…` → `{status, token?}` |
-| `POST` | `/api/auth/login` | Password login — body `{username, password}` → `{token}` |
-| `GET` | `/api/auth/dev/login` | Dev login (no SSO/OIDC only) — `?username=…` → redirect with token |
-| `GET` | `/api/runtime-config` | Returns active login modes for the frontend |
+| Method | Path                          | Description                                                                             |
+| ------ | ----------------------------- | --------------------------------------------------------------------------------------- |
+| `GET`  | `/api/auth/sso/login`         | Redirect to Didi SSO login page (requires `sso.app_id` in config)                       |
+| `GET`  | `/api/auth/sso/callback`      | SSO callback — issues app JWT, redirects to `{frontend_url}/login/sso#access_token=…`   |
+| `GET`  | `/api/auth/oidc/login`        | Redirect to OIDC provider (requires `oidc.client_id` in config)                         |
+| `GET`  | `/api/auth/oidc/callback`     | OIDC callback — issues app JWT, redirects to `{frontend_url}/login/oidc#access_token=…` |
+| `POST` | `/api/auth/oidc/cli-login`    | CLI OIDC — body `{session_id}`, returns `{auth_url}`. Requires Redis.                   |
+| `GET`  | `/api/auth/oidc/cli-callback` | CLI OIDC browser callback — writes token to Redis                                       |
+| `GET`  | `/api/auth/oidc/cli-poll`     | CLI OIDC poll — `?session_id=…` → `{status, token?}`                                    |
+| `POST` | `/api/auth/login`             | Password login — body `{username, password}` → `{token}`                                |
+| `GET`  | `/api/auth/dev/login`         | Dev login (no SSO/OIDC only) — `?username=…` → redirect with token                      |
+| `GET`  | `/api/runtime-config`         | Returns active login modes for the frontend                                             |
 
 **Task endpoints (protected — require `Authorization: Bearer <token>`)**
 
-| Method | Path | Status | Description |
-|---|---|---|---|
-| `GET` | `/api/tasks` | 200 | List tasks for the authenticated user (newest first) |
-| `POST` | `/api/tasks` | 201 | Create a task → `{ "id": "<uuid>" }` |
-| `POST` | `/api/tasks/:id/messages` | 200 | Send a message (SSE stream) |
-| `GET` | `/api/tasks/:id` | 200 | Get task state |
-| `GET` | `/api/tasks/:id/history` | 200 | Get conversation history from OFS |
-| `DELETE` | `/api/tasks/:id` | 204 | Delete task and tear down sandbox |
-| `GET` | `/health` | 200 | Liveness probe → `{ "status": "ok" }` |
-| `GET` | `/swagger/*` | — | Swagger UI |
+| Method   | Path                      | Status | Description                                          |
+| -------- | ------------------------- | ------ | ---------------------------------------------------- |
+| `GET`    | `/api/tasks`              | 200    | List tasks for the authenticated user (newest first) |
+| `POST`   | `/api/tasks`              | 201    | Create a task → `{ "id": "<uuid>" }`                 |
+| `POST`   | `/api/tasks/:id/messages` | 200    | Send a message (SSE stream)                          |
+| `GET`    | `/api/tasks/:id`          | 200    | Get task state                                       |
+| `GET`    | `/api/tasks/:id/history`  | 200    | Get conversation history from OFS                    |
+| `DELETE` | `/api/tasks/:id`          | 204    | Delete task and tear down sandbox                    |
+| `GET`    | `/health`                 | 200    | Liveness probe → `{ "status": "ok" }`                |
+| `GET`    | `/swagger/*`              | —      | Swagger UI                                           |
 
 ### GET /api/tasks — response
 
@@ -274,7 +274,7 @@ Browser
   │
   │  POST /api/tasks/:id/messages  { prompt }
   ▼
-Go backend (:8081)
+Go backend (:8091)
   │
   │  [first message — EnsureProvisioned]
   │  POST /v1/sandboxes              → create sandbox
@@ -359,10 +359,10 @@ If the sandbox has expired, all sandbox fields (`state`, `sandbox_id`, `proxy_ba
 
 ### Task persistence
 
-| Backend | Durable fields | Ephemeral fields | Locking |
-|---|---|---|---|
-| `MemoryRepository` (dev) | `map[string]*Task` | same map | `sync.RWMutex` + per-task `sync.Mutex` |
-| `MySQLRepository` (production) | MySQL `tasks` table | Redis `sandbox:{id}` hash | Redis `task-lock:{id}` |
+| Backend                        | Durable fields      | Ephemeral fields          | Locking                                |
+| ------------------------------ | ------------------- | ------------------------- | -------------------------------------- |
+| `MemoryRepository` (dev)       | `map[string]*Task`  | same map                  | `sync.RWMutex` + per-task `sync.Mutex` |
+| `MySQLRepository` (production) | MySQL `tasks` table | Redis `sandbox:{id}` hash | Redis `task-lock:{id}`                 |
 
 See [docs/specs/redis-storage.md](docs/specs/redis-storage.md) for the full storage architecture, key operations, and a lifecycle walkthrough.
 
@@ -377,18 +377,18 @@ See [docs/specs/redis-storage.md](docs/specs/redis-storage.md) for the full stor
 
 The manager builds the sandbox env by merging config-level fields with per-task `extraEnv`:
 
-| Env var | Source |
-|---|---|
-| `ANTHROPIC_API_KEY` | `anthropic.api_key` (required) |
-| `PORT` | hardcoded `3000` |
-| `USERNAME` | task `username` field |
-| `TASK_ID` | task `id` — keys OFS storage |
-| `ANTHROPIC_BASE_URL` | `anthropic.base_url` (if set) |
-| `ANTHROPIC_MODEL` | `anthropic.model` (if set) |
+| Env var                                  | Source                                          |
+| ---------------------------------------- | ----------------------------------------------- |
+| `ANTHROPIC_API_KEY`                      | `anthropic.api_key` (required)                  |
+| `PORT`                                   | hardcoded `3000`                                |
+| `USERNAME`                               | task `username` field                           |
+| `TASK_ID`                                | task `id` — keys OFS storage                    |
+| `ANTHROPIC_BASE_URL`                     | `anthropic.base_url` (if set)                   |
+| `ANTHROPIC_MODEL`                        | `anthropic.model` (if set)                      |
 | `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` | `anthropic.disable_experimental_betas` (if set) |
-| `ORANGEFS_RS_ADDR` | `orangefs.addr` (if set) |
-| `ORANGEFS_TOKEN` | `orangefs.token` (if set) |
-| `ORANGEFS_VOLUME` | `orangefs.volume` (if set) |
+| `ORANGEFS_RS_ADDR`                       | `orangefs.addr` (if set)                        |
+| `ORANGEFS_TOKEN`                         | `orangefs.token` (if set)                       |
+| `ORANGEFS_VOLUME`                        | `orangefs.volume` (if set)                      |
 
 ---
 
@@ -396,35 +396,35 @@ The manager builds the sandbox env by merging config-level fields with per-task 
 
 ```bash
 # health
-curl http://localhost:8081/health
+curl http://localhost:8091/health
 
 # list tasks for authenticated user
-curl http://localhost:8081/api/tasks \
+curl http://localhost:8091/api/tasks \
   -H "Authorization: Bearer <token>"
 
 # create task
-curl -X POST http://localhost:8081/api/tasks
+curl -X POST http://localhost:8091/api/tasks
 # → {"id":"<uuid>"}
 
 # create task with username and extra env
-curl -X POST http://localhost:8081/api/tasks \
+curl -X POST http://localhost:8091/api/tasks \
   -H "Content-Type: application/json" \
   -d '{"username":"alice","env":{"MY_VAR":"value"}}'
 
 # send message (streams SSE)
-curl -X POST http://localhost:8081/api/tasks/<id>/messages \
+curl -X POST http://localhost:8091/api/tasks/<id>/messages \
   -H "Content-Type: application/json" \
   -d '{"prompt":"say hello"}' \
   --no-buffer
 
 # get task state
-curl http://localhost:8081/api/tasks/<id>
+curl http://localhost:8091/api/tasks/<id>
 
 # get conversation history (requires OFS)
-curl http://localhost:8081/api/tasks/<id>/history
+curl http://localhost:8091/api/tasks/<id>/history
 
 # delete task + tear down sandbox
-curl -X DELETE http://localhost:8081/api/tasks/<id>
+curl -X DELETE http://localhost:8091/api/tasks/<id>
 ```
 
 ---

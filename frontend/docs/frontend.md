@@ -1,6 +1,6 @@
 # Frontend
 
-Vite + React + TypeScript chat interface. Talks to the Go backend at `:8081` via a Vite dev proxy — no CORS configuration needed.
+Vite + React + TypeScript chat interface. Talks to the Go backend at `:8091` via a Vite dev proxy — no CORS configuration needed.
 
 ## Running
 
@@ -13,14 +13,14 @@ npm run lint     # ESLint
 
 ## Stack
 
-| Layer | Choice |
-|---|---|
-| Bundler | Vite 6 |
-| UI | React 19 + TypeScript |
-| Styling | Tailwind CSS v4 (`@tailwindcss/vite`) |
-| Components | shadcn/ui (neutral palette) |
-| Icons | lucide-react |
-| Markdown | react-markdown |
+| Layer      | Choice                                |
+| ---------- | ------------------------------------- |
+| Bundler    | Vite 6                                |
+| UI         | React 19 + TypeScript                 |
+| Styling    | Tailwind CSS v4 (`@tailwindcss/vite`) |
+| Components | shadcn/ui (neutral palette)           |
+| Icons      | lucide-react                          |
+| Markdown   | react-markdown                        |
 
 Font: Inter (loaded from `rsms.me/inter` CDN, applied via `@theme { --font-sans }` in `index.css`).
 
@@ -59,16 +59,16 @@ src/
 
 Thin fetch wrappers. Base URL comes from `VITE_API_BASE` (defaults to `''`, so the Vite proxy handles routing in dev).
 
-| Function | Description |
-|---|---|
-| `getRuntimeConfig()` | `GET /api/runtime-config` → login mode flags |
-| `listTasks()` | `GET /api/tasks` → `TaskSummary[]` (newest first) |
-| `createTask(username)` | `POST /api/tasks` → task `id` |
-| `sendMessage(taskId, prompt)` | `POST /api/tasks/:id/messages` → raw `Response` for SSE reading |
-| `getHistory(taskId)` | `GET /api/tasks/:id/history` → `SessionEntry[]` |
-| `deleteTask(taskId)` | `DELETE /api/tasks/:id` |
-| `respondToPermission(taskId, decision)` | `POST /api/tasks/:id/permissions` |
-| `respondToQuestion(taskId, answers)` | `POST /api/tasks/:id/questions` |
+| Function                                | Description                                                     |
+| --------------------------------------- | --------------------------------------------------------------- |
+| `getRuntimeConfig()`                    | `GET /api/runtime-config` → login mode flags                    |
+| `listTasks()`                           | `GET /api/tasks` → `TaskSummary[]` (newest first)               |
+| `createTask(username)`                  | `POST /api/tasks` → task `id`                                   |
+| `sendMessage(taskId, prompt)`           | `POST /api/tasks/:id/messages` → raw `Response` for SSE reading |
+| `getHistory(taskId)`                    | `GET /api/tasks/:id/history` → `SessionEntry[]`                 |
+| `deleteTask(taskId)`                    | `DELETE /api/tasks/:id`                                         |
+| `respondToPermission(taskId, decision)` | `POST /api/tasks/:id/permissions`                               |
+| `respondToQuestion(taskId, answers)`    | `POST /api/tasks/:id/questions`                                 |
 
 `sendMessage` returns the raw `Response` rather than parsed data so the caller can read the body as a stream.
 
@@ -80,17 +80,17 @@ Thin fetch wrappers. Base URL comes from `VITE_API_BASE` (defaults to `''`, so t
 const { messages, taskId, sandboxState, sending, sendMessage, loadTask, newChat, approvePermission, answerQuestion } = useChat(username)
 ```
 
-| Value | Type | Description |
-|---|---|---|
-| `messages` | `Message[]` | Full conversation history |
-| `taskId` | `string \| null` | Current task ID; null for a fresh chat |
-| `sandboxState` | `SandboxState` | `idle \| provisioning \| running \| error` |
-| `sending` | `boolean` | True while a message is in-flight |
-| `sendMessage(prompt)` | `(string) => void` | Send a message and stream the response |
-| `loadTask(id, messages)` | `(string, Message[]) => void` | Load history from a previous task and resume it |
-| `newChat()` | `() => void` | Reset to an empty fresh chat |
-| `approvePermission(approved)` | `(boolean) => void` | Respond to a pending tool permission |
-| `answerQuestion(answers)` | `(Record) => void` | Submit answers to a pending question |
+| Value                         | Type                          | Description                                     |
+| ----------------------------- | ----------------------------- | ----------------------------------------------- |
+| `messages`                    | `Message[]`                   | Full conversation history                       |
+| `taskId`                      | `string \| null`              | Current task ID; null for a fresh chat          |
+| `sandboxState`                | `SandboxState`                | `idle \| provisioning \| running \| error`      |
+| `sending`                     | `boolean`                     | True while a message is in-flight               |
+| `sendMessage(prompt)`         | `(string) => void`            | Send a message and stream the response          |
+| `loadTask(id, messages)`      | `(string, Message[]) => void` | Load history from a previous task and resume it |
+| `newChat()`                   | `() => void`                  | Reset to an empty fresh chat                    |
+| `approvePermission(approved)` | `(boolean) => void`           | Respond to a pending tool permission            |
+| `answerQuestion(answers)`     | `(Record) => void`            | Submit answers to a pending question            |
 
 ### `sendMessage` flow
 
@@ -101,16 +101,16 @@ const { messages, taskId, sandboxState, sending, sendMessage, loadTask, newChat,
 
 ### SSE event handling
 
-| Event | Action |
-|---|---|
-| `session.init` | Sets `sandboxState` → `running` |
-| `message.assistant` | Appends `data.text` to the assistant message (delta, not replace) |
-| `session.status` (idle) | Marks assistant message `done` |
-| `task.started` | Pushes a new `ToolActivity{done: false}` onto the message |
-| `task.progress` | Updates the last `ToolActivity` with current description and tool name |
-| `result` | Marks assistant message `done` |
-| `session.completed` | Marks all tool activities `done`, re-enables input |
-| `error` | Marks assistant message `error`, sets `sandboxState` → `error` |
+| Event                   | Action                                                                 |
+| ----------------------- | ---------------------------------------------------------------------- |
+| `session.init`          | Sets `sandboxState` → `running`                                        |
+| `message.assistant`     | Appends `data.text` to the assistant message (delta, not replace)      |
+| `session.status` (idle) | Marks assistant message `done`                                         |
+| `task.started`          | Pushes a new `ToolActivity{done: false}` onto the message              |
+| `task.progress`         | Updates the last `ToolActivity` with current description and tool name |
+| `result`                | Marks assistant message `done`                                         |
+| `session.completed`     | Marks all tool activities `done`, re-enables input                     |
+| `error`                 | Marks assistant message `error`, sets `sandboxState` → `error`         |
 
 `session.completed` (not `result`) is the signal used to re-enable the input, matching the backend's terminal event.
 
@@ -175,12 +175,12 @@ Textarea that auto-resizes up to ~6 lines. Submits on `Enter`; `Shift+Enter` ins
 
 Left sidebar showing the authenticated user's task history. Props:
 
-| Prop | Type | Description |
-|---|---|---|
-| `tasks` | `TaskSummary[]` | List from `listTasks()` |
-| `activeTaskId` | `string \| null` | Highlights the currently loaded task |
-| `onSelectTask` | `(id: string) => void` | Called when a task row is clicked |
-| `onNewChat` | `() => void` | Called when the pencil (new-chat) button is clicked |
+| Prop           | Type                   | Description                                         |
+| -------------- | ---------------------- | --------------------------------------------------- |
+| `tasks`        | `TaskSummary[]`        | List from `listTasks()`                             |
+| `activeTaskId` | `string \| null`       | Highlights the currently loaded task                |
+| `onSelectTask` | `(id: string) => void` | Called when a task row is clicked                   |
+| `onNewChat`    | `() => void`           | Called when the pencil (new-chat) button is clicked |
 
 Dates are formatted as time (`10:30 AM`) for today, `Yesterday` for yesterday, and `Month Day` for older entries.
 
@@ -188,11 +188,11 @@ Dates are formatted as time (`10:30 AM`) for today, `Yesterday` for yesterday, a
 
 Renders nothing when `idle`. Otherwise shows a colored dot + label:
 
-| State | Dot | Label |
-|---|---|---|
+| State          | Dot             | Label               |
+| -------------- | --------------- | ------------------- |
 | `provisioning` | pulsing neutral | Starting workspace… |
-| `running` | green | Connected |
-| `error` | red | Connection error |
+| `running`      | green           | Connected           |
+| `error`        | red             | Connection error    |
 
 ## Configuration
 
@@ -201,7 +201,7 @@ Renders nothing when `idle`. Otherwise shows a colored dot + label:
 ```ts
 server: {
   proxy: {
-    '/api': { target: 'http://localhost:8081', changeOrigin: true }
+    '/api': { target: 'http://localhost:8091', changeOrigin: true }
   }
 }
 ```
@@ -210,9 +210,9 @@ All `/api/*` requests from the browser are forwarded to the Go backend. `VITE_AP
 
 ### Environment variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `VITE_API_BASE` | `''` | Backend base URL. Leave empty when using the Vite proxy. Set to `http://localhost:8081` for environments without a proxy. |
+| Variable        | Default | Description                                                                                                               |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE` | `''`    | Backend base URL. Leave empty when using the Vite proxy. Set to `http://localhost:8091` for environments without a proxy. |
 
 ### Path alias
 

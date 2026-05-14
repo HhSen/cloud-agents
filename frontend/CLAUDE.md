@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev      # http://localhost:5173 (Vite dev server, proxies /api to :8081)
+npm run dev      # http://localhost:5173 (Vite dev server, proxies /api to :8091)
 npm run build    # type-check + production bundle
 npm run lint     # ESLint
 ```
@@ -16,12 +16,12 @@ Adding a shadcn component: `npx shadcn@latest add <name>` (neutral palette, CSS 
 
 ### Routing (`src/App.tsx`)
 
-| Route | Component | Auth |
-|---|---|---|
-| `/` | `ChatPage` | Protected (`ProtectedRoute`) |
-| `/resources` | `ResourcesPage` | Protected |
-| `/login` | `LoginPage` | Public |
-| `/login/sso`, `/login/oidc` | `SSOCallbackPage` | Public |
+| Route                       | Component         | Auth                         |
+| --------------------------- | ----------------- | ---------------------------- |
+| `/`                         | `ChatPage`        | Protected (`ProtectedRoute`) |
+| `/resources`                | `ResourcesPage`   | Protected                    |
+| `/login`                    | `LoginPage`       | Public                       |
+| `/login/sso`, `/login/oidc` | `SSOCallbackPage` | Public                       |
 
 `ProtectedRoute` reads the JWT from localStorage via `auth.ts` and redirects to `/login` if absent or expired.
 
@@ -46,18 +46,18 @@ All chat state lives here. Returns:
 
 ### SSE event → state mapping
 
-| Event | Effect |
-|---|---|
-| `session.init` | `sandboxState → 'running'`; stores `cwd` |
-| `message.assistant` | Appends `data.text` delta; collects `tool_use` blocks |
-| `permission.requested` | Sets `status: 'requesting'`, attaches `permissionRequest` to message |
-| `question.asked` | Sets `status: 'asking'`, attaches `pendingQuestions` to message |
-| `session.status` (idle) | Sets `status: 'done'` |
-| `task.started` | Pushes a new `ToolActivity{done: false}` |
-| `task.progress` | Updates last `ToolActivity` description + tool name |
-| `result` | Sets `status: 'done'` |
-| `session.completed` | Marks all tool activities `done`, clears `sending` |
-| `error` | Sets `status: 'error'`, `sandboxState → 'error'` |
+| Event                   | Effect                                                               |
+| ----------------------- | -------------------------------------------------------------------- |
+| `session.init`          | `sandboxState → 'running'`; stores `cwd`                             |
+| `message.assistant`     | Appends `data.text` delta; collects `tool_use` blocks                |
+| `permission.requested`  | Sets `status: 'requesting'`, attaches `permissionRequest` to message |
+| `question.asked`        | Sets `status: 'asking'`, attaches `pendingQuestions` to message      |
+| `session.status` (idle) | Sets `status: 'done'`                                                |
+| `task.started`          | Pushes a new `ToolActivity{done: false}`                             |
+| `task.progress`         | Updates last `ToolActivity` description + tool name                  |
+| `result`                | Sets `status: 'done'`                                                |
+| `session.completed`     | Marks all tool activities `done`, clears `sending`                   |
+| `error`                 | Sets `status: 'error'`, `sandboxState → 'error'`                     |
 
 ### Message status lifecycle
 

@@ -86,7 +86,7 @@ This is a full-stack Claude Code hosting platform. The browser talks to a Go bac
 Browser (React/Vite :5173)
   │  /api/*  (Vite proxy in dev)
   ▼
-Go backend (:8081)
+Go backend (:8091)
   │  lazy-provisions sandbox on first message
   ▼
 OpenSandbox server (:8080)
@@ -99,17 +99,17 @@ OpenSandbox server (:8080)
 
 **Key packages:**
 
-| Package | Responsibility |
-|---|---|
-| `internal/api` | Gin router + HTTP handlers + request/response types |
-| `internal/task` | Task state machine, repository interface, Memory/MySQL/Redis backends |
-| `internal/sandbox` | OpenSandbox lifecycle (create → poll → health-check) + SSE proxy |
-| `internal/auth` | HS256 JWT issue/verify, Bearer middleware, Gin context helpers |
-| `internal/db` | GORM models (User, Task), AutoMigrate, MySQL connection |
-| `internal/oidc` | go-oidc provider wrapper + CLI login flow |
-| `internal/sso` | Didi SSO HTTP client + handlers |
-| `internal/storage` | OFS (S3-compatible) client for conversation history |
-| `pkg/config` | YAML config loader with defaults |
+| Package            | Responsibility                                                        |
+| ------------------ | --------------------------------------------------------------------- |
+| `internal/api`     | Gin router + HTTP handlers + request/response types                   |
+| `internal/task`    | Task state machine, repository interface, Memory/MySQL/Redis backends |
+| `internal/sandbox` | OpenSandbox lifecycle (create → poll → health-check) + SSE proxy      |
+| `internal/auth`    | HS256 JWT issue/verify, Bearer middleware, Gin context helpers        |
+| `internal/db`      | GORM models (User, Task), AutoMigrate, MySQL connection               |
+| `internal/oidc`    | go-oidc provider wrapper + CLI login flow                             |
+| `internal/sso`     | Didi SSO HTTP client + handlers                                       |
+| `internal/storage` | OFS (S3-compatible) client for conversation history                   |
+| `pkg/config`       | YAML config loader with defaults                                      |
 
 **Task state machine:** `pending → provisioning → running`, with `error` on failure. The sandbox is created lazily on the first message via `EnsureProvisioned`, which holds a distributed Redis lock to prevent double-provisioning. `session_id` is write-once and never cleared, so history in OFS remains accessible after a sandbox expires.
 
@@ -118,7 +118,7 @@ OpenSandbox server (:8080)
 - **Redis** — ephemeral sandbox routing (`sandbox:{id}`) + distributed provisioning lock (`task-lock:{id}`)
 - **OFS (S3)** — NDJSON conversation history keyed by `TASK_ID`
 
-**Swagger UI:** `http://localhost:8081/swagger/index.html`
+**Swagger UI:** `http://localhost:8091/swagger/index.html`
 
 ### Frontend (`frontend/src/`)
 
@@ -126,14 +126,14 @@ OpenSandbox server (:8080)
 
 **Key files:**
 
-| File | Responsibility |
-|---|---|
-| `hooks/useChat.ts` | Single source of truth: all chat state + SSE streaming logic |
-| `api/client.ts` | Thin fetch wrappers for the backend REST API |
+| File                  | Responsibility                                                   |
+| --------------------- | ---------------------------------------------------------------- |
+| `hooks/useChat.ts`    | Single source of truth: all chat state + SSE streaming logic     |
+| `api/client.ts`       | Thin fetch wrappers for the backend REST API                     |
 | `lib/chainBuilder.ts` | Converts `SessionEntry[]` (OFS history) → `Message[]` for replay |
-| `lib/auth.ts` | JWT token management (localStorage) |
-| `pages/ChatPage.tsx` | Two-column layout (sidebar + chat) |
-| `types/session.ts` | Typed union for every NDJSON entry type |
+| `lib/auth.ts`         | JWT token management (localStorage)                              |
+| `pages/ChatPage.tsx`  | Two-column layout (sidebar + chat)                               |
+| `types/session.ts`    | Typed union for every NDJSON entry type                          |
 
 **SSE flow:** `useChat.sendMessage` → creates task if needed → POST to backend → reads SSE body as stream via `parseSSE` async generator → dispatches events to update message state. `session.completed` (not `result`) is the terminal event that re-enables input.
 

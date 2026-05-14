@@ -18,15 +18,15 @@ This plan assumes the Gin migration (`plans/gin-migration.md`) has been applied 
 
 ## Python → Go library mapping
 
-| Python (l-flow) | Go equivalent | Notes |
-| --- | --- | --- |
-| `authlib` (OIDC/JWKS) | `github.com/coreos/go-oidc/v3/oidc` | Discovery, JWKS, id_token verify; JWKS auto-refreshes |
-| `pyjwt` / `python-jose` | `github.com/golang-jwt/jwt/v5` | state JWT + app JWT |
-| SQLAlchemy | `gorm.io/gorm` + `gorm.io/driver/mysql` | ORM; GORM auto-migrate for User table |
-| `passlib[bcrypt]` | `golang.org/x/crypto/bcrypt` | Password hash for SSO/OIDC users |
-| `redis` (CLI sessions) | `github.com/go-redis/redis/v8` | Already in `go.mod` |
-| `httpx` | `net/http` | Already used for sandbox client |
-| `pydantic-settings` | `pkg/config/config.go` (YAML) | Extend existing config struct |
+| Python (l-flow)         | Go equivalent                           | Notes                                                 |
+| ----------------------- | --------------------------------------- | ----------------------------------------------------- |
+| `authlib` (OIDC/JWKS)   | `github.com/coreos/go-oidc/v3/oidc`     | Discovery, JWKS, id_token verify; JWKS auto-refreshes |
+| `pyjwt` / `python-jose` | `github.com/golang-jwt/jwt/v5`          | state JWT + app JWT                                   |
+| SQLAlchemy              | `gorm.io/gorm` + `gorm.io/driver/mysql` | ORM; GORM auto-migrate for User table                 |
+| `passlib[bcrypt]`       | `golang.org/x/crypto/bcrypt`            | Password hash for SSO/OIDC users                      |
+| `redis` (CLI sessions)  | `github.com/go-redis/redis/v8`          | Already in `go.mod`                                   |
+| `httpx`                 | `net/http`                              | Already used for sandbox client                       |
+| `pydantic-settings`     | `pkg/config/config.go` (YAML)           | Extend existing config struct                         |
 
 ---
 
@@ -127,8 +127,8 @@ oidc:
   client_id: ""
   client_secret: ""
   discovery_url: ""       # e.g. https://accounts.google.com/.well-known/openid-configuration
-  redirect_uri: ""        # e.g. http://localhost:8081/api/auth/oidc/callback
-  cli_redirect_uri: ""    # e.g. http://localhost:8081/api/auth/oidc/cli-callback
+  redirect_uri: ""        # e.g. http://localhost:8091/api/auth/oidc/callback
+  cli_redirect_uri: ""    # e.g. http://localhost:8091/api/auth/oidc/cli-callback
 
 sso:
   base_url: "https://mis.diditaxi.com.cn"
@@ -591,38 +591,38 @@ router := api.NewRouter(api.RouterDeps{
 
 ## Security mapping
 
-| Threat | Mitigation |
-| --- | --- |
-| CSRF | state encoded as short-TTL HS256 JWT with independent `oidc_state_secret` |
-| Replay attack | nonce passed to IdP via `oidc.Nonce()`, embedded in id_token, re-validated in `VerifyIDToken` |
+| Threat              | Mitigation                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| CSRF                | state encoded as short-TTL HS256 JWT with independent `oidc_state_secret`                       |
+| Replay attack       | nonce passed to IdP via `oidc.Nonce()`, embedded in id_token, re-validated in `VerifyIDToken`   |
 | Algorithm confusion | `ParseWithClaims` keyfunc asserts `*jwt.SigningMethodHMAC`; rejects `alg:none` and RS256 tokens |
-| JWKS rotation | `go-oidc` re-fetches on unknown key ID automatically |
-| SSO code replay | 30s TTL one-time code enforced by Didi SSO service |
-| Token in logs | post-auth redirect uses URL fragment (`#access_token=`), never sent to server |
-| Password exposure | SSO/OIDC/dev users get `bcrypt(randomUUID)` password hash |
-| Log leakage | never log raw tokens; log only `userID` or `userName` |
+| JWKS rotation       | `go-oidc` re-fetches on unknown key ID automatically                                            |
+| SSO code replay     | 30s TTL one-time code enforced by Didi SSO service                                              |
+| Token in logs       | post-auth redirect uses URL fragment (`#access_token=`), never sent to server                   |
+| Password exposure   | SSO/OIDC/dev users get `bcrypt(randomUUID)` password hash                                       |
+| Log leakage         | never log raw tokens; log only `userID` or `userName`                                           |
 
 ---
 
 ## File change summary
 
-| File | Change |
-| --- | --- |
-| `go.mod` | Add gorm, go-oidc, golang-jwt, bcrypt |
-| `pkg/config/config.go` | Add MySQL, Auth, OIDC, SSO config structs |
-| `config.example.yaml` | Add corresponding YAML blocks |
-| `internal/db/mysql.go` | New — GORM open + AutoMigrate |
-| `internal/db/user.go` | New — User model + FindOrCreate + HashAPIKey |
-| `internal/auth/token.go` | New — CreateToken / VerifyToken |
-| `internal/auth/middleware.go` | New — BearerAuth Gin middleware |
-| `internal/auth/context.go` | New — set/get User in gin.Context |
-| `internal/oidc/service.go` | New — go-oidc wrapper |
-| `internal/oidc/handlers.go` | New — login, callback, cli-login, cli-callback, cli-poll |
-| `internal/sso/service.go` | New — Didi SSO HTTP client |
-| `internal/sso/handlers.go` | New — login, callback |
-| `internal/api/router.go` | Extend — auth routes + protected group |
-| `internal/api/handlers.go` | Minimal — read username from auth context instead of request body |
-| `cmd/server/main.go` | Extend — wire DB, OIDC/SSO services |
+| File                          | Change                                                            |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `go.mod`                      | Add gorm, go-oidc, golang-jwt, bcrypt                             |
+| `pkg/config/config.go`        | Add MySQL, Auth, OIDC, SSO config structs                         |
+| `config.example.yaml`         | Add corresponding YAML blocks                                     |
+| `internal/db/mysql.go`        | New — GORM open + AutoMigrate                                     |
+| `internal/db/user.go`         | New — User model + FindOrCreate + HashAPIKey                      |
+| `internal/auth/token.go`      | New — CreateToken / VerifyToken                                   |
+| `internal/auth/middleware.go` | New — BearerAuth Gin middleware                                   |
+| `internal/auth/context.go`    | New — set/get User in gin.Context                                 |
+| `internal/oidc/service.go`    | New — go-oidc wrapper                                             |
+| `internal/oidc/handlers.go`   | New — login, callback, cli-login, cli-callback, cli-poll          |
+| `internal/sso/service.go`     | New — Didi SSO HTTP client                                        |
+| `internal/sso/handlers.go`    | New — login, callback                                             |
+| `internal/api/router.go`      | Extend — auth routes + protected group                            |
+| `internal/api/handlers.go`    | Minimal — read username from auth context instead of request body |
+| `cmd/server/main.go`          | Extend — wire DB, OIDC/SSO services                               |
 
 ---
 
@@ -652,13 +652,13 @@ Before any load test or traffic spike against the SSO endpoints:
 
 ## Decisions
 
-| # | Question | Decision |
-| --- | --- | --- |
-| 1 | MySQL required in dev? | **Yes, always required.** Removed optional/dev-mode fallback. Use `GET /api/auth/dev/login` for local dev without SSO. |
-| 2 | Gin migration prerequisite? | Confirmed — Gin is already in use; proceed with `gin.HandlerFunc` middleware as written. |
-| 3 | Password-based login? | Yes — `/api/auth/login` (username + password) is registered whenever MySQL is configured. |
-| 4 | API key provisioning? | Out of scope here — track in a follow-up plan. |
-| 5 | Default resources on new user? | No — redirect to homepage on first login; no default task resources needed. |
-| 6 | SSO login URL pattern? | Direct redirect to `{base_url}/auth/sso/login?app_id=...&jumpto=...&version=1.0`. Removed the double-redirect pattern initially planned. `callback_url` is not passed in the URL — it must be pre-registered in UPM. |
-| 7 | Token delivery to frontend? | URL fragment (`#access_token=`). Avoids token appearing in server logs, browser history, or Referer headers. |
-| 8 | Dev login auth source? | `AuthSourceDev` (distinct from `AuthSourceSSO`). Keeps audit logs meaningful in environments where SSO is later enabled. |
+| #   | Question                       | Decision                                                                                                                                                                                                             |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | MySQL required in dev?         | **Yes, always required.** Removed optional/dev-mode fallback. Use `GET /api/auth/dev/login` for local dev without SSO.                                                                                               |
+| 2   | Gin migration prerequisite?    | Confirmed — Gin is already in use; proceed with `gin.HandlerFunc` middleware as written.                                                                                                                             |
+| 3   | Password-based login?          | Yes — `/api/auth/login` (username + password) is registered whenever MySQL is configured.                                                                                                                            |
+| 4   | API key provisioning?          | Out of scope here — track in a follow-up plan.                                                                                                                                                                       |
+| 5   | Default resources on new user? | No — redirect to homepage on first login; no default task resources needed.                                                                                                                                          |
+| 6   | SSO login URL pattern?         | Direct redirect to `{base_url}/auth/sso/login?app_id=...&jumpto=...&version=1.0`. Removed the double-redirect pattern initially planned. `callback_url` is not passed in the URL — it must be pre-registered in UPM. |
+| 7   | Token delivery to frontend?    | URL fragment (`#access_token=`). Avoids token appearing in server logs, browser history, or Referer headers.                                                                                                         |
+| 8   | Dev login auth source?         | `AuthSourceDev` (distinct from `AuthSourceSSO`). Keeps audit logs meaningful in environments where SSO is later enabled.                                                                                             |
