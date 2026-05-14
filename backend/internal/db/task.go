@@ -3,7 +3,7 @@ package db
 import "time"
 
 type Task struct {
-	ID          string `gorm:"primaryKey;size:12"`
+	ID          string `gorm:"primaryKey;size:36"`
 	State       int    `gorm:"not null;default:0"`
 	Title       string `gorm:"size:255"`
 	SessionID   string `gorm:"size:36"`
