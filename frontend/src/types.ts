@@ -28,6 +28,11 @@ export interface Question {
   multiSelect: boolean
 }
 
+export interface AnsweredQuestion {
+  questions: Question[]
+  answers: Record<string, string | string[]>
+}
+
 export interface Message {
   id: string
   role: Role
@@ -37,6 +42,7 @@ export interface Message {
   toolUseBlocks?: ToolUseBlock[]
   permissionRequest?: PermissionRequest
   pendingQuestions?: Question[]
+  answeredQuestions?: AnsweredQuestion[]
 }
 
 export interface ToolActivity {

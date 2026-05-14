@@ -2,7 +2,7 @@ import { AlertCircle, ChevronDown, ChevronRight, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { cn } from '@/lib/utils'
-import type { Message, PermissionRequest, Question, ToolUseBlock } from '@/types'
+import type { AnsweredQuestion, Message, PermissionRequest, Question, ToolUseBlock } from '@/types'
 
 interface Props {
   message: Message
@@ -139,14 +139,16 @@ function PermissionCard({
 function QuestionCard({
   questions,
   onRespond,
+  initialAnswers,
 }: {
   questions: Question[]
   onRespond: (answers: Record<string, string | string[]>) => void
+  initialAnswers?: Record<string, string | string[]>
 }) {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>(() =>
-    Object.fromEntries(questions.map(q => [q.question, q.multiSelect ? [] : '']))
+    initialAnswers ?? Object.fromEntries(questions.map(q => [q.question, q.multiSelect ? [] : '']))
   )
-  const [submitted, setSubmitted] = useState(false)
+  const [submitted, setSubmitted] = useState(!!initialAnswers)
 
   function toggle(question: string, label: string, multiSelect: boolean) {
     setAnswers(prev => {
@@ -271,6 +273,16 @@ export function ChatMessage({ message, onApprovePermission, onAnswerQuestion }: 
                 />
               </div>
             )}
+
+            {message.answeredQuestions?.map((aq: AnsweredQuestion, i: number) => (
+              <div key={i} className="mb-2">
+                <QuestionCard
+                  questions={aq.questions}
+                  initialAnswers={aq.answers}
+                  onRespond={() => {}}
+                />
+              </div>
+            ))}
 
             {message.toolUseBlocks && message.toolUseBlocks.length > 0 && (
               <div className="mb-2 space-y-1.5">
