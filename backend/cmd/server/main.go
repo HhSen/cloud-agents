@@ -16,8 +16,8 @@ import (
 	"github.com/your-org/platform-backend/internal/api"
 	"github.com/your-org/platform-backend/internal/db"
 	oidcpkg "github.com/your-org/platform-backend/internal/oidc"
-	ssopkg "github.com/your-org/platform-backend/internal/sso"
 	"github.com/your-org/platform-backend/internal/sandbox"
+	ssopkg "github.com/your-org/platform-backend/internal/sso"
 	"github.com/your-org/platform-backend/internal/storage"
 	"github.com/your-org/platform-backend/internal/task"
 	"github.com/your-org/platform-backend/pkg/config"
@@ -134,11 +134,23 @@ func main() {
 		logger.Default().Info("SSO enabled", "base_url", cfg.SSO.BaseURL)
 	}
 
+	if cfg.Security.SSHKeySecret == "" {
+		var count int64
+		gormDB.Model(&db.User{}).Where("ssh_private_key_enc != ''").Count(&count)
+		if count > 0 {
+			logger.Default().Error("security.ssh_key_secret must be set — some users have stored SSH keys")
+			os.Exit(1)
+		}
+	}
+
 	mgr := sandbox.NewManager(cfg.Sandbox.ServerURL, cfg.Sandbox.APIKey, baseEnv, cfg.Sandbox.Image, platform, cfg.Sandbox.MemoryLimit, cfg.Sandbox.CPULimit, cfg.Sandbox.TimeoutSeconds)
 
 	kindsRepo := db.NewKindsRepository(gormDB)
 	if ofsClient != nil {
 		mgr.WithResources(kindsRepo, ofsClient)
+	}
+	if cfg.Security.SSHKeySecret != "" {
+		mgr.WithSSHKeys(gormDB, cfg.Security.SSHKeySecret)
 	}
 
 	router := api.NewRouter(api.RouterDeps{

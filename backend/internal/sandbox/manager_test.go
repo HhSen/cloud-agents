@@ -90,7 +90,7 @@ func newTestManager(lc lifecycleClient, serverURL, apiKey string, baseEnv map[st
 
 func sandboxTask(username string, extraEnv map[string]string) *task.Task {
 	s := task.NewStore()
-	return s.Create(username, extraEnv)
+	return s.Create(username, extraEnv, "")
 }
 
 func TestProvision_MergesEnv(t *testing.T) {

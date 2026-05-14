@@ -42,11 +42,17 @@ POST /api/tasks
 Provisioned for task
   → sandbox_id assigned, task_id injected as env var TASK_ID
   → OFS volume mounted at {task_id}/ inside container
+  → health-check passes
+  → SSH key injected into /root/.ssh/ (if configured)
+  → skill/MCP resources injected
+  → if task.git_url != "": git clone <git_url> . into /workspace/{username}/{task_id}/
+      clone failure → task.state = Error, task.error_msg = <stderr>; abort
   → agent server (claude-agent-server) starts inside sandbox
 
 Can be: paused → destroyed → recreated
   → new sandbox_id on each creation
   → same task_id and same OFS mount: conversation state survives
+  → git_url is NOT re-cloned on recreation (workspace files persist across sandboxes)
 ```
 
 ### Session
@@ -127,6 +133,7 @@ entries, err := fileStore.GetHistory(ctx, keys[0])
 | `active` | assigned | assigned | Session live, agent processing messages |
 | `paused` | null | retained | Sandbox destroyed; session history readable from OFS via session_id |
 | `resuming` | new id | retained | New sandbox starting; session_id unchanged until agent server confirms |
+| `error` | any | any | Provisioning failed (e.g. clone error); `error_msg` field carries detail |
 
 ---
 
@@ -140,3 +147,12 @@ The OFS spec (`ofsspec.md`) describes the file layout. The mapping here determin
 - Agent workspace (FUSE only, not S3-accessible from backend): OFS subpath `{username}/workspaces/{task_id}` → `/workspace/{username}/{task_id}/` inside container
 
 The `username` + `task_id` pair is the join key between the backend's task record, the sandbox FUSE workspace, and the OFS S3 session history.
+
+---
+
+## Related Documents
+
+- [`ofsspec.md`](ofsspec.md) — OFS file layout and session history structure
+- [`data-management.md`](data-management.md) — Full entity model including `git_url` / `error_msg` on tasks
+- [`ssh-key-management.md`](ssh-key-management.md) — SSH key injection (prerequisite for private repo cloning)
+- [`git-task-integration.md`](git-task-integration.md) — Git clone step: API, validation, security, error surfacing

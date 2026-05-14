@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeft, Blocks, FolderOpen } from 'lucide-react'
+import { PanelLeft, Blocks, FolderOpen, Settings } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { ChatInput } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { HistorySidepanel } from '@/components/HistorySidepanel'
+import { NewTaskDialog } from '@/components/NewTaskDialog'
 import { StatusBadge } from '@/components/StatusBadge'
 import { WorkspacePanel } from '@/components/WorkspacePanel'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useChat } from '@/hooks/useChat'
-import { deleteTask, getHistory, getTask, listTasks } from '@/api/client'
+import { createTask, deleteTask, getHistory, getTask, listTasks } from '@/api/client'
 import type { TaskSummary } from '@/api/client'
 import { getAuthUsername } from '@/lib/auth'
 import { buildMessages } from '@/lib/chainBuilder'
@@ -25,10 +26,11 @@ export function ChatPage() {
     setRefreshToken(t => t + 1)
   }, [])
 
-  const { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask } =
+  const { messages, taskId, cwd, sandboxState, sending, sendMessage, approvePermission, answerQuestion, newChat, loadTask, startTask } =
     useChat(username, handleSessionCompleted)
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(240)
   const [workspaceWidth, setWorkspaceWidth] = useState(288)
   const [resizing, setResizing] = useState(false)
@@ -62,8 +64,15 @@ export function ChatPage() {
   }, [loadTask])
 
   const handleNewChat = useCallback(() => {
-    newChat()
-  }, [newChat])
+    setDialogOpen(true)
+  }, [])
+
+  const handleDialogCreate = useCallback(async ({ title, gitUrl }: { title?: string; gitUrl?: string }) => {
+    const id = await createTask(username, { title, gitUrl })
+    startTask(id)
+    refreshTasks()
+    setDialogOpen(false)
+  }, [username, startTask, refreshTasks])
 
   const handleDeleteTask = useCallback(async (id: string) => {
     await deleteTask(id)
@@ -94,6 +103,11 @@ export function ChatPage() {
 
   return (
     <div className={cn('flex h-[100dvh]', resizing && 'select-none')}>
+      <NewTaskDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onCreate={handleDialogCreate}
+      />
       {sidebarOpen && (
         <>
           <div style={{ width: sidebarWidth }} className="flex-shrink-0 h-full overflow-hidden">
@@ -131,6 +145,13 @@ export function ChatPage() {
               title="Manage resources"
             >
               <Blocks size={16} />
+            </button>
+            <button
+              onClick={() => navigate('/settings')}
+              className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
+              title="Settings"
+            >
+              <Settings size={16} />
             </button>
             <button
               onClick={() => setWorkspaceOpen(v => !v)}

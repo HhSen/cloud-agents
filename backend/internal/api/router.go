@@ -46,6 +46,13 @@ func NewRouter(deps RouterDeps) http.Handler {
 	if deps.WorkspaceReader != nil {
 		h.withWorkspace(deps.WorkspaceReader)
 	}
+	if deps.DB != nil {
+		sshSecret := ""
+		if deps.Cfg != nil {
+			sshSecret = deps.Cfg.Security.SSHKeySecret
+		}
+		h.withUserSettings(deps.DB, sshSecret)
+	}
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -97,6 +104,9 @@ func NewRouter(deps RouterDeps) http.Handler {
 		protected.GET("/tasks/:id/workspace/files", h.WorkspaceFiles)
 		protected.GET("/tasks/:id/workspace/file", h.WorkspaceFile)
 		protected.Any("/tasks/:id/execd/*path", h.ExecdProxy)
+
+		protected.GET("/user/settings", h.GetUserSettings)
+		protected.PUT("/user/settings", h.UpdateUserSettings)
 	}
 
 	r.GET("/health", h.Health)

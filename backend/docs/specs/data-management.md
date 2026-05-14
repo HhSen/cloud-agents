@@ -18,12 +18,13 @@ Three principal entities form the backend data model. Their storage, lifetimes, 
 ```mermaid
 erDiagram
     USER {
-        uint   id            PK
-        string user_name     UK
+        uint   id                   PK
+        string user_name            UK
         string email
         string password_hash
         bool   is_active
         string auth_source
+        text   ssh_private_key_enc      "AES-256-GCM encrypted PEM; empty = no key"
     }
 
     TASK {
@@ -34,6 +35,8 @@ erDiagram
         string  session_id       "write-once; null until first message"
         text    extra_env        "JSON map"
         bool    provisioned
+        string  git_url          "optional; repo cloned at provision time"
+        text    error_msg        "set when state=Error; clone failure detail"
     }
 
     SANDBOX_REDIS {
@@ -77,8 +80,10 @@ KIND {
 │  MySQL  (durable)                                                          │
 │  ─────────────────────────────────────────────────────────────────────    │
 │  users:  id │ user_name │ email │ password_hash │ is_active │ auth_source  │
+│             │ ssh_private_key_enc (TEXT, AES-256-GCM encrypted PEM or '')  │
 │  tasks:  id │ user_id(FK) │ state │ title │ session_id │ extra_env │       │
-│             │ provisioned │ created_at │ updated_at                        │
+│             │ provisioned │ git_url (VARCHAR 512, nullable) │ error_msg     │
+│             │ (TEXT, nullable) │ created_at │ updated_at                   │
 │  kinds:  id │ user_id(FK) │ kind │ name │ ofs_path │ meta(JSON) │          │
 │             │ is_active │ created_at │ updated_at                          │
 │             │ UNIQUE(user_id, kind, name)                                  │
@@ -181,7 +186,7 @@ State transitions:
 ### Create Task
 
 1. Resolve `username` → `user_id` in MySQL
-2. `INSERT INTO tasks` (state=0, provisioned=false, session_id='')
+2. `INSERT INTO tasks` (state=0, provisioned=false, session_id='', git_url=?, error_msg='')
 3. No Redis writes
 
 ### Send First Message (triggers sandbox provisioning)
@@ -189,12 +194,15 @@ State transitions:
 1. `SELECT * FROM tasks` + `HGETALL sandbox:{id}` (empty)
 2. Acquire `task-lock:{id}` (Redis, 30 s TTL)
 3. Check `tasks.provisioned` — false → run provisioning
-4. Create sandbox → `SetRunning`: `UPDATE tasks SET state=2` + `HSET sandbox:{id} ...` (7-day TTL)
-5. Verify MySQL state=2 and Redis sandbox_id non-empty
-6. `UPDATE tasks SET provisioned=true`
-7. Release lock; proxy message to sandbox
-8. On SSE `session.init`: `UPDATE tasks SET session_id=? WHERE session_id=''` (write-once)
-9. On stream complete: read session title → `UPDATE tasks SET title=?`
+4. Create sandbox → health-check passes → inject SSH key → inject resources
+5. If `git_url != ""`: run `git clone <git_url> .` via execd command API  
+   On failure: `UPDATE tasks SET state=3, error_msg=<stderr>` → abort provisioning
+6. `SetRunning`: `UPDATE tasks SET state=2` + `HSET sandbox:{id} ...` (7-day TTL)
+7. Verify MySQL state=2 and Redis sandbox_id non-empty
+8. `UPDATE tasks SET provisioned=true`
+9. Release lock; proxy message to sandbox
+10. On SSE `session.init`: `UPDATE tasks SET session_id=? WHERE session_id=''` (write-once)
+11. On stream complete: read session title → `UPDATE tasks SET title=?`
 
 ### Sandbox Expires, New Message Arrives
 
@@ -235,3 +243,5 @@ User data in OFS (`{username}/history/...` and `{username}/.claude/...`) is **no
 - [`resource-mapping.md`](resource-mapping.md) — Task / Sandbox / Session lifecycle and state table
 - [`ofsspec.md`](ofsspec.md) — OFS file layout and session history structure
 - [`resources.md`](resources.md) — User resources (skills/MCP): API, DB schema, OFS paths, sandbox injection
+- [`ssh-key-management.md`](ssh-key-management.md) — Per-user SSH key: encryption, API, sandbox injection
+- [`git-task-integration.md`](git-task-integration.md) — Optional git repository cloning at provision time (`git_url`, `error_msg`)

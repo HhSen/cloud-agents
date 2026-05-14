@@ -505,6 +505,81 @@
                 }
             }
         },
+        "/api/resources/zip": {
+            "post": {
+                "description": "Create a multi-file skill by uploading a zip. The zip must contain SKILL.md at root. Other files are stored as companion files (max 20 total, 1 MiB each).",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "resources"
+                ],
+                "summary": "Create a skill from a zip archive",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Skill name ([a-zA-Z0-9_-]+)",
+                        "name": "name",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Zip archive",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.resourceResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid name, missing SKILL.md, or bad zip",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "zip or file too large",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "422": {
+                        "description": "too many files",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "storage error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "resource storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/resources/{id}": {
             "put": {
                 "description": "Update a resource's content, meta, or active flag.",
@@ -596,6 +671,59 @@
                     },
                     "400": {
                         "description": "invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "resource not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "resource storage not configured",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/resources/{id}/content": {
+            "get": {
+                "description": "Reads and returns the SKILL.md content for a skill resource from OFS.",
+                "produces": [
+                    "text/plain"
+                ],
+                "tags": [
+                    "resources"
+                ],
+                "summary": "Get skill SKILL.md content",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Resource ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "SKILL.md content",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "resource is not a skill",
                         "schema": {
                             "$ref": "#/definitions/internal_api.errorResponse"
                         }
@@ -818,7 +946,7 @@
                 }
             },
             "post": {
-                "description": "Create a new task with an optional username and environment variables.",
+                "description": "Create a new task. Optional git_url clones the repository at provision time. Private repos (git@ or ssh://) require an SSH key to be configured.",
                 "consumes": [
                     "application/json"
                 ],
@@ -848,9 +976,9 @@
                         }
                     },
                     "400": {
-                        "description": "invalid request body",
+                        "description": "invalid request body or missing SSH key for private repo",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/internal_api.errorResponse"
                         }
                     },
                     "500": {
@@ -931,6 +1059,54 @@
                         "description": "failed to delete task",
                         "schema": {
                             "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tasks/{id}/execd/{path}": {
+            "get": {
+                "description": "Forwards any method+path to the execd daemon (port 44772) inside the task's sandbox. Supports GET /files/search, GET /files/download, POST /directories, etc.",
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Proxy execd filesystem API",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Execd sub-path (e.g. files/search)",
+                        "name": "path",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "404": {
+                        "description": "task not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "sandbox not running",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "execd unreachable",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
                         }
                     }
                 }
@@ -1157,6 +1333,185 @@
                 }
             }
         },
+        "/api/tasks/{id}/workspace/file": {
+            "get": {
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Download workspace file via OFS",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Absolute file path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK"
+                    },
+                    "400": {
+                        "description": "path is required",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "task not found or file not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "OFS not configured",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/tasks/{id}/workspace/files": {
+            "get": {
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "List workspace directory via OFS",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Absolute directory path",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.FileInfo"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "path is required",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "task not found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "OFS not configured",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/user/settings": {
+            "get": {
+                "description": "Returns whether the authenticated user has an SSH key configured.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get user settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.userSettingsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Save or clear the user's SSH private key. Empty string clears the stored key.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Update user settings",
+                "parameters": [
+                    {
+                        "description": "Settings update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateUserSettingsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "invalid PEM or request body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Liveness probe — returns ok when the server is up.",
@@ -1179,6 +1534,29 @@
         }
     },
     "definitions": {
+        "internal_api.FileInfo": {
+            "type": "object",
+            "properties": {
+                "isDir": {
+                    "type": "boolean"
+                },
+                "modTime": {
+                    "type": "string"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                }
+            }
+        },
         "internal_api.createResourceRequest": {
             "type": "object",
             "required": [
@@ -1215,6 +1593,12 @@
                         "type": "string"
                     }
                 },
+                "git_url": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
                 "username": {
                     "type": "string"
                 }
@@ -1239,6 +1623,15 @@
         "internal_api.getTaskResponse": {
             "type": "object",
             "properties": {
+                "cwd": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                },
+                "git_url": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -1393,6 +1786,12 @@
                 "created_at": {
                     "type": "string"
                 },
+                "error_msg": {
+                    "type": "string"
+                },
+                "git_url": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -1429,6 +1828,22 @@
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "internal_api.updateUserSettingsRequest": {
+            "type": "object",
+            "properties": {
+                "ssh_private_key": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.userSettingsResponse": {
+            "type": "object",
+            "properties": {
+                "has_ssh_key": {
+                    "type": "boolean"
                 }
             }
         },

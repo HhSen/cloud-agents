@@ -2,6 +2,7 @@ import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { ChatPage } from '@/pages/ChatPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { ResourcesPage } from '@/pages/ResourcesPage'
+import { SettingsPage } from '@/pages/SettingsPage'
 import { SSOCallbackPage } from '@/pages/SSOCallbackPage'
 import { Agentation } from 'agentation'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
@@ -28,6 +29,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ResourcesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             }
           />

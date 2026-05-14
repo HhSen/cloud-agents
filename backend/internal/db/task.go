@@ -9,6 +9,8 @@ type Task struct {
 	SessionID   string `gorm:"size:36"`
 	ExtraEnv    string `gorm:"type:text"`
 	Provisioned bool   `gorm:"default:false"`
+	GitURL      string `gorm:"column:git_url;size:512"`
+	ErrorMsg    string `gorm:"column:error_msg;type:text"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 

@@ -17,7 +17,12 @@ type Config struct {
 	Auth      AuthConfig      `yaml:"auth"`
 	OIDC      OIDCConfig      `yaml:"oidc"`
 	SSO       SSOConfig       `yaml:"sso"`
+	Security  SecurityConfig  `yaml:"security"`
 	Log       LogConfig       `yaml:"log"`
+}
+
+type SecurityConfig struct {
+	SSHKeySecret string `yaml:"ssh_key_secret"` // 32-byte hex; generate with: openssl rand -hex 32
 }
 
 type LogConfig struct {

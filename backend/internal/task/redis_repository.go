@@ -24,7 +24,7 @@ func NewRedisRepository(rdb *redis.Client) *RedisRepository {
 	return &RedisRepository{rdb: rdb}
 }
 
-func (r *RedisRepository) Create(ctx context.Context, username string, extraEnv map[string]string) (*Task, error) {
+func (r *RedisRepository) Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error) {
 	id := uuid.New().String()
 
 	extraEnvJSON, err := json.Marshal(extraEnv)
@@ -42,6 +42,7 @@ func (r *RedisRepository) Create(ctx context.Context, username string, extraEnv 
 		"session_id", "",
 		"extra_env", string(extraEnvJSON),
 		"provisioned", "0",
+		"git_url", gitURL,
 	).Err(); err != nil {
 		return nil, fmt.Errorf("create task: %w", err)
 	}
@@ -51,6 +52,7 @@ func (r *RedisRepository) Create(ctx context.Context, username string, extraEnv 
 		Username: username,
 		state:    StateNew,
 		extraEnv: extraEnv,
+		gitURL:   gitURL,
 	}
 	t.ops = &redisTaskOps{redisLock{rdb: r.rdb, taskID: id}}
 	return t, nil
@@ -104,6 +106,8 @@ func unmarshalTask(rdb *redis.Client, fields map[string]string) (*Task, error) {
 		sessionID:    fields["session_id"],
 		extraEnv:     extraEnv,
 		provisioned:  fields["provisioned"] == "1",
+		gitURL:       fields["git_url"],
+		errorMsg:     fields["error_msg"],
 	}
 	t.ops = &redisTaskOps{redisLock{rdb: rdb, taskID: id}}
 	return t, nil
@@ -135,9 +139,9 @@ func (o *redisTaskOps) persistProvisioning() {
 	}
 }
 
-func (o *redisTaskOps) persistError() {
+func (o *redisTaskOps) persistError(msg string) {
 	ctx := context.Background()
-	if err := o.rdb.HSet(ctx, taskKey(o.taskID), "state", int(StateError)).Err(); err != nil {
+	if err := o.rdb.HSet(ctx, taskKey(o.taskID), "state", int(StateError), "error_msg", msg).Err(); err != nil {
 		logger.Default().Error("redis: persist error state", "task_id", o.taskID, "err", err)
 	}
 }

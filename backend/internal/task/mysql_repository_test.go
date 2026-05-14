@@ -55,7 +55,7 @@ func TestMySQLCreate_StoresTask(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "alice")
 
-	tsk, err := repo.Create(ctx, "alice", map[string]string{"FOO": "bar"})
+	tsk, err := repo.Create(ctx, "alice", map[string]string{"FOO": "bar"}, "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestMySQLGet_Found(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "bob")
 
-	created, _ := repo.Create(ctx, "bob", nil)
+	created, _ := repo.Create(ctx, "bob", nil, "")
 	got, err := repo.Get(ctx, created.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -110,7 +110,7 @@ func TestMySQLDelete_Removes(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	if err := repo.Delete(ctx, tsk.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestMySQLSetRunning_Persists(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	headers := map[string]string{"Authorization": "Bearer tok"}
 	tsk.SetRunning("sb-1", "http://proxy/", headers)
 
@@ -156,7 +156,7 @@ func TestMySQLSetSessionID_WriteOnce(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.SetSessionID("first")
 	tsk.SetSessionID("second") // should be a no-op
 
@@ -171,7 +171,7 @@ func TestMySQLEnsureProvisioned_CalledOnce(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 
 	var callCount atomic.Int32
 	var wg sync.WaitGroup
@@ -202,7 +202,7 @@ func TestMySQLEnsureProvisioned_StateNotPersistedFails(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	err := tsk.EnsureProvisioned(func() error {
 		// fn succeeds but never calls SetRunning — state stays StateNew.
 		return nil
@@ -222,7 +222,7 @@ func TestMySQLEnsureProvisioned_FailedFnRetried(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	want := errors.New("provision failed")
 
 	err := tsk.EnsureProvisioned(func() error { return want })
@@ -241,7 +241,7 @@ func TestMySQLResetIfExpired_ResetsWhenNotAlive(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-expired", "http://proxy/", map[string]string{})
 		return nil
@@ -269,7 +269,7 @@ func TestMySQLResetIfExpired_NoResetWhenAlive(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-alive", "http://proxy/", map[string]string{})
 		return nil
@@ -291,7 +291,7 @@ func TestMySQLResetForReprovisioning_ClearsState(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.EnsureProvisioned(func() error {
 		tsk.SetRunning("sb-1", "http://proxy/", map[string]string{})
 		return nil
@@ -318,7 +318,7 @@ func TestMySQLPersistTitle(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.SetTitle("My project")
 
 	got, _ := repo.Get(ctx, tsk.ID)
@@ -332,7 +332,7 @@ func TestMySQLDelete_CleansRedis(t *testing.T) {
 	ctx := context.Background()
 	mustInsertUser(t, repo, "testuser")
 
-	tsk, _ := repo.Create(ctx, "testuser", nil)
+	tsk, _ := repo.Create(ctx, "testuser", nil, "")
 	tsk.SetRunning("sb-del", "http://proxy/", nil)
 
 	// Confirm sandbox hash exists in Redis.

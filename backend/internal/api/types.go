@@ -7,6 +7,8 @@ import (
 
 type createTaskRequest struct {
 	Username string            `json:"username" binding:"required"`
+	Title    string            `json:"title,omitempty"`
+	GitURL   string            `json:"git_url,omitempty"`
 	Env      map[string]string `json:"env,omitempty"`
 }
 
@@ -26,6 +28,8 @@ type getTaskResponse struct {
 	SessionID string `json:"session_id"`
 	Title     string `json:"title"`
 	CWD       string `json:"cwd"`
+	GitURL    string `json:"git_url,omitempty"`
+	ErrorMsg  string `json:"error_msg,omitempty"`
 }
 
 // FileInfo is a single file or directory entry in a workspace listing.
@@ -56,6 +60,8 @@ type taskListItem struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	State     string    `json:"state"`
+	GitURL    string    `json:"git_url,omitempty"`
+	ErrorMsg  string    `json:"error_msg,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -109,5 +115,13 @@ type runtimeConfigResponse struct {
 	AllowRegister bool   `json:"allowRegister"`
 	OIDCLoginText string `json:"oidcLoginText,omitempty"`
 	SSOLoginText  string `json:"ssoLoginText,omitempty"`
+}
+
+type userSettingsResponse struct {
+	HasSSHKey bool `json:"has_ssh_key"`
+}
+
+type updateUserSettingsRequest struct {
+	SSHPrivateKey *string `json:"ssh_private_key"`
 }
 

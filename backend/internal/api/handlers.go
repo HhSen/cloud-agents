@@ -15,15 +15,39 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/your-org/platform-backend/internal/auth"
+	"github.com/your-org/platform-backend/internal/crypto"
 	"github.com/your-org/platform-backend/internal/db"
 	"github.com/your-org/platform-backend/internal/storage"
 	"github.com/your-org/platform-backend/internal/task"
 	"github.com/your-org/platform-backend/pkg/config"
 	"github.com/your-org/platform-backend/pkg/logger"
+	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
 
 var validResourceName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+// validGitURL accepts recognised protocols and rejects shell metacharacters
+// (whitespace, ;, &, |, $, backtick, parens, angle brackets) that could be
+// exploited if the URL is interpolated into a shell command.
+var validGitURL = regexp.MustCompile("^(https?://|git@|ssh://)[^\\s;|&$`()\\n\\r<>]+$")
+
+func isValidGitURL(u string) bool { return validGitURL.MatchString(u) }
+
+func isPrivateGitURL(u string) bool {
+	return strings.HasPrefix(u, "git@") || strings.HasPrefix(u, "ssh://")
+}
+
+// repoNameFromGitURL extracts the repository name (without .git suffix) from a URL.
+func repoNameFromGitURL(u string) string {
+	// Strip trailing .git
+	u = strings.TrimSuffix(u, ".git")
+	// Last path segment: works for both https://host/org/repo and git@host:org/repo
+	if idx := strings.LastIndexAny(u, "/:"); idx >= 0 {
+		return u[idx+1:]
+	}
+	return u
+}
 
 const (
 	maxSkillFiles    = 20
@@ -109,6 +133,8 @@ type Handler struct {
 	serverURL       string             // sandbox lifecycle server base URL
 	sandboxAPIKey   string             // X-OPEN-SANDBOX-API-KEY value
 	httpClient      *http.Client       // reused for execd proxy requests
+	gormDB          *gorm.DB           // optional; nil disables user settings API
+	sshKeySecret    string             // hex key for SSH key encryption; from config
 }
 
 // NewHandler constructs a Handler from its dependencies.
@@ -135,6 +161,93 @@ func (h *Handler) withResources(kr db.KindsRepository, w ResourceWriter, r Resou
 
 func (h *Handler) withWorkspace(r WorkspaceReader) {
 	h.workspaceReader = r
+}
+
+func (h *Handler) withUserSettings(db *gorm.DB, sshKeySecret string) {
+	h.gormDB = db
+	h.sshKeySecret = sshKeySecret
+}
+
+// GetUserSettings handles GET /api/user/settings.
+//
+// @Summary      Get user settings
+// @Description  Returns whether the authenticated user has an SSH key configured.
+// @Tags         user
+// @Produce      json
+// @Success      200  {object}  userSettingsResponse
+// @Failure      401  {object}  errorResponse  "unauthorized"
+// @Router       /api/user/settings [get]
+func (h *Handler) GetUserSettings(c *gin.Context) {
+	u := auth.GetUser(c)
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, errorResponse{Error: "unauthorized"})
+		return
+	}
+	// BearerAuth middleware loads the full db.User row; SSHPrivateKeyEnc is already set.
+	c.JSON(http.StatusOK, userSettingsResponse{HasSSHKey: u.SSHPrivateKeyEnc != ""})
+}
+
+// UpdateUserSettings handles PUT /api/user/settings.
+//
+// @Summary      Update user settings
+// @Description  Save or clear the user's SSH private key. Empty string clears the stored key.
+// @Tags         user
+// @Accept       json
+// @Produce      json
+// @Param        body  body      updateUserSettingsRequest  true  "Settings update"
+// @Success      204
+// @Failure      400  {object}  errorResponse  "invalid PEM or request body"
+// @Failure      401  {object}  errorResponse  "unauthorized"
+// @Failure      500  {object}  errorResponse  "internal error"
+// @Router       /api/user/settings [put]
+func (h *Handler) UpdateUserSettings(c *gin.Context) {
+	u := auth.GetUser(c)
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, errorResponse{Error: "unauthorized"})
+		return
+	}
+	if h.gormDB == nil {
+		c.JSON(http.StatusServiceUnavailable, errorResponse{Error: "user settings not configured"})
+		return
+	}
+
+	var body updateUserSettingsRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid request body"})
+		return
+	}
+	if body.SSHPrivateKey == nil {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "ssh_private_key is required (use empty string to clear)"})
+		return
+	}
+
+	var encKey string
+	if *body.SSHPrivateKey != "" {
+		if _, err := ssh.ParseRawPrivateKey([]byte(*body.SSHPrivateKey)); err != nil {
+			c.JSON(http.StatusBadRequest, errorResponse{Error: "invalid SSH private key: " + err.Error()})
+			return
+		}
+		if h.sshKeySecret == "" {
+			c.JSON(http.StatusInternalServerError, errorResponse{Error: "SSH key encryption not configured"})
+			return
+		}
+		enc, err := crypto.Encrypt(*body.SSHPrivateKey, h.sshKeySecret)
+		if err != nil {
+			logger.Default().Error("encrypt ssh key", "err", err)
+			c.JSON(http.StatusInternalServerError, errorResponse{Error: "failed to encrypt key"})
+			return
+		}
+		encKey = enc
+	}
+
+	if err := h.gormDB.Model(&db.User{}).Where("user_name = ?", u.UserName).Update("ssh_private_key_enc", encKey).Error; err != nil {
+		logger.Default().Error("update ssh key", "err", err)
+		c.JSON(http.StatusInternalServerError, errorResponse{Error: "failed to save key"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
+	c.Writer.WriteHeaderNow()
 }
 
 // PasswordLoginHandler returns a Gin handler for POST /api/auth/login.
@@ -233,13 +346,13 @@ func checkTaskOwner(c *gin.Context, taskUsername string) bool {
 // CreateTask handles POST /api/tasks.
 //
 // @Summary      Create a task
-// @Description  Create a new task with an optional username and environment variables.
+// @Description  Create a new task. Optional git_url clones the repository at provision time. Private repos (git@ or ssh://) require an SSH key to be configured.
 // @Tags         tasks
 // @Accept       json
 // @Produce      json
 // @Param        body  body      createTaskRequest   true  "Create task request"
 // @Success      201   {object}  createTaskResponse
-// @Failure      400   {string}  string  "invalid request body"
+// @Failure      400   {object}  errorResponse  "invalid request body or missing SSH key for private repo"
 // @Failure      500   {string}  string  "failed to create task"
 // @Router       /api/tasks [post]
 func (h *Handler) CreateTask(c *gin.Context) {
@@ -250,15 +363,33 @@ func (h *Handler) CreateTask(c *gin.Context) {
 	}
 
 	// If auth middleware is active, override the body username with the authenticated user.
-	if u := auth.GetUser(c); u != nil {
+	u := auth.GetUser(c)
+	if u != nil {
 		body.Username = u.UserName
 	}
 
-	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env)
+	if body.GitURL != "" {
+		if !isValidGitURL(body.GitURL) {
+			c.JSON(http.StatusBadRequest, errorResponse{Error: "git_url must start with https://, git@, or ssh://"})
+			return
+		}
+		if isPrivateGitURL(body.GitURL) && (u == nil || u.SSHPrivateKeyEnc == "") {
+			c.JSON(http.StatusBadRequest, errorResponse{Error: "private repo requires an SSH key — add one in Settings"})
+			return
+		}
+		if body.Title == "" {
+			body.Title = repoNameFromGitURL(body.GitURL)
+		}
+	}
+
+	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env, body.GitURL)
 	if err != nil {
 		logger.Default().Error("create task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to create task")
 		return
+	}
+	if body.Title != "" {
+		t.SetTitle(body.Title)
 	}
 	c.JSON(http.StatusCreated, createTaskResponse{ID: t.ID})
 }
@@ -333,7 +464,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		return h.manager.ProvisionForTask(provisionCtx, t)
 	})
 	if err != nil {
-		t.SetError()
+		t.SetError(err.Error())
 		log.Error("provision failed", "err", err)
 		c.String(http.StatusBadGateway, "failed to provision sandbox")
 		return
@@ -384,6 +515,8 @@ func (h *Handler) GetTask(c *gin.Context) {
 		SessionID: sessionID,
 		Title:     t.GetTitle(),
 		CWD:       fmt.Sprintf("/workspace/%s/%s", t.Username, id),
+		GitURL:    t.GetGitURL(),
+		ErrorMsg:  t.GetErrorMsg(),
 	})
 }
 
@@ -613,6 +746,8 @@ func (h *Handler) ListTasks(c *gin.Context) {
 			ID:        t.ID,
 			Title:     t.Title,
 			State:     t.State,
+			GitURL:    t.GitURL,
+			ErrorMsg:  t.ErrorMsg,
 			CreatedAt: t.CreatedAt,
 			UpdatedAt: t.UpdatedAt,
 		}
