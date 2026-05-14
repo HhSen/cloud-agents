@@ -1,8 +1,8 @@
-import { AlertCircle, ChevronDown, ChevronRight, Wrench } from 'lucide-react'
+import { AlertCircle, Bot, ChevronDown, ChevronRight, Wrench } from 'lucide-react'
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { cn } from '@/lib/utils'
-import type { AnsweredQuestion, Message, PermissionRequest, Question, ToolUseBlock } from '@/types'
+import type { AnsweredQuestion, Message, PermissionRequest, Question, SubagentMessage, ThinkingBlock, ToolUseBlock } from '@/types'
 
 interface Props {
   message: Message
@@ -17,6 +17,94 @@ function primaryParam(name: string, input: Record<string, unknown>): string | nu
   if (!key) return null
   const val = input[key]
   return typeof val === 'string' ? val : null
+}
+
+function ThinkingCard({ blocks }: { blocks: ThinkingBlock[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const text = blocks.map(b => b.thinking).join('\n\n')
+
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-neutral-50 overflow-hidden text-xs mb-2">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-neutral-500 hover:text-neutral-700"
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform flex-shrink-0', expanded && 'rotate-90')} />
+        <span className="font-medium italic">Thinking…</span>
+      </button>
+      {expanded && (
+        <div className="border-t border-neutral-200 px-2.5 py-2">
+          <p className="whitespace-pre-wrap text-[11px] text-neutral-500 italic">{text}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SubagentMessageRow({ msg }: { msg: SubagentMessage }) {
+  return (
+    <div className="space-y-1">
+      {msg.text && (
+        <p className="text-[11px] text-neutral-600 whitespace-pre-wrap">{msg.text}</p>
+      )}
+      {msg.toolUseBlocks && msg.toolUseBlocks.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {msg.toolUseBlocks.map(b => (
+            <span
+              key={b.id}
+              className="inline-flex items-center gap-0.5 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700"
+            >
+              <Wrench className="h-2.5 w-2.5" />
+              {b.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AgentToolUseCard({ block }: { block: ToolUseBlock }) {
+  const [expanded, setExpanded] = useState(false)
+  const trace = block.subagentTrace!
+  const stepCount = trace.messages.length
+
+  return (
+    <div className="rounded-lg border border-violet-200 bg-violet-50 overflow-hidden text-xs">
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-violet-100 border-b border-violet-200">
+        <Bot className="h-3 w-3 text-violet-500 flex-shrink-0" />
+        <span className="font-semibold text-violet-800">{trace.agentType || 'Agent'}</span>
+        {trace.description && (
+          <span className="text-violet-600 truncate">— {trace.description}</span>
+        )}
+        {trace.totalTokens != null && (
+          <span className="ml-auto flex-shrink-0 text-violet-400">{trace.totalTokens.toLocaleString()} tokens</span>
+        )}
+      </div>
+
+      {trace.summary && (
+        <div className="px-2.5 py-1.5 text-neutral-600 line-clamp-3">{trace.summary}</div>
+      )}
+
+      {stepCount > 0 && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex items-center gap-0.5 px-2.5 pb-1.5 text-violet-500 hover:text-violet-700"
+        >
+          <ChevronRight className={cn('h-3 w-3 transition-transform', expanded && 'rotate-90')} />
+          {stepCount} step{stepCount !== 1 ? 's' : ''}
+        </button>
+      )}
+
+      {expanded && (
+        <div className="border-t border-violet-200 px-2.5 py-2 space-y-2">
+          {trace.messages.map(msg => (
+            <SubagentMessageRow key={msg.id} msg={msg} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function ToolUseCard({ block }: { block: ToolUseBlock }) {
@@ -284,11 +372,17 @@ export function ChatMessage({ message, onApprovePermission, onAnswerQuestion }: 
               </div>
             ))}
 
+            {message.thinkingBlocks && message.thinkingBlocks.length > 0 && (
+              <ThinkingCard blocks={message.thinkingBlocks} />
+            )}
+
             {message.toolUseBlocks && message.toolUseBlocks.length > 0 && (
               <div className="mb-2 space-y-1.5">
-                {message.toolUseBlocks.map((block) => (
-                  <ToolUseCard key={block.id} block={block} />
-                ))}
+                {message.toolUseBlocks.map((block) =>
+                  block.name === 'Agent' && block.subagentTrace
+                    ? <AgentToolUseCard key={block.id} block={block} />
+                    : <ToolUseCard key={block.id} block={block} />
+                )}
               </div>
             )}
 

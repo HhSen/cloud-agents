@@ -2,10 +2,30 @@ export type Role = 'user' | 'assistant'
 
 export type MessageStatus = 'streaming' | 'done' | 'error' | 'requesting' | 'asking'
 
+export interface ThinkingBlock {
+  thinking: string
+}
+
+export interface SubagentMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  toolUseBlocks?: ToolUseBlock[]
+}
+
+export interface SubagentTrace {
+  agentType: string
+  description: string
+  summary: string
+  totalTokens?: number
+  messages: SubagentMessage[]
+}
+
 export interface ToolUseBlock {
   id: string
   name: string
   input: Record<string, unknown>
+  subagentTrace?: SubagentTrace
 }
 
 export interface PermissionRequest {
@@ -40,6 +60,7 @@ export interface Message {
   status: MessageStatus
   toolActivity?: ToolActivity[]
   toolUseBlocks?: ToolUseBlock[]
+  thinkingBlocks?: ThinkingBlock[]
   permissionRequest?: PermissionRequest
   pendingQuestions?: Question[]
   answeredQuestions?: AnsweredQuestion[]
