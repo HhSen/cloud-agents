@@ -2256,6 +2256,9 @@ const docTemplate = `{
                 "prompt"
             ],
             "properties": {
+                "permissionMode": {
+                    "type": "string"
+                },
                 "prompt": {
                     "type": "string"
                 }

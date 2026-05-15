@@ -82,13 +82,13 @@ export function ChatPage() {
     }
   }, [anthropicKeyInput, pendingMsg, sendMessage])
 
-  const handleSend = useCallback((msg: string, files?: File[]) => {
+  const handleSend = useCallback((msg: string, files?: File[], permissionMode?: string) => {
     if (hasAnthropicKey === false) {
       setPendingMsg(msg)
       setKeyDialogOpen(true)
       return
     }
-    sendMessage(msg, files)
+    sendMessage(msg, files, permissionMode)
   }, [hasAnthropicKey, sendMessage])
 
   useEffect(() => {

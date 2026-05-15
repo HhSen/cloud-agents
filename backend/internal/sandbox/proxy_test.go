@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -43,7 +44,7 @@ func TestStreamMessage_NewSession(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	if err := p.StreamMessage(context.Background(), tsk, "hello", nil, rw); err != nil {
+	if err := p.StreamMessage(context.Background(), tsk, "hello", nil, "", rw); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -71,7 +72,7 @@ func TestStreamMessage_ExistingSession(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), tsk, "hi", nil, rw)
+	p.StreamMessage(context.Background(), tsk, "hi", nil, "", rw)
 
 	want := "/sessions/existing-session/messages"
 	if capturedPath != want {
@@ -89,7 +90,7 @@ func TestStreamMessage_Upstream4xx(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	err := p.StreamMessage(context.Background(), tsk, "x", nil, rw)
+	err := p.StreamMessage(context.Background(), tsk, "x", nil, "", rw)
 	if err == nil {
 		t.Fatal("expected error for 4xx response, got nil")
 	}
@@ -106,7 +107,7 @@ func TestStreamMessage_Upstream5xx(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	err := p.StreamMessage(context.Background(), tsk, "x", nil, rw)
+	err := p.StreamMessage(context.Background(), tsk, "x", nil, "", rw)
 	if err == nil {
 		t.Fatal("expected error for 5xx response, got nil")
 	}
@@ -151,7 +152,7 @@ func TestStreamMessage_ContextCancel(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- p.StreamMessage(ctx, tsk, "x", nil, rw)
+		done <- p.StreamMessage(ctx, tsk, "x", nil, "", rw)
 	}()
 
 	// Wait until StreamMessage has written SSE headers to rw — this guarantees
@@ -178,7 +179,7 @@ func TestStreamMessage_Headers(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), tsk, "x", nil, rw)
+	p.StreamMessage(context.Background(), tsk, "x", nil, "", rw)
 
 	if capturedAuth != "Bearer mytoken" {
 		t.Errorf("expected Authorization: Bearer mytoken, got %q", capturedAuth)
@@ -195,7 +196,7 @@ func TestStreamMessage_SSEResponseHeaders(t *testing.T) {
 	p := NewProxy()
 	rw := httptest.NewRecorder()
 
-	p.StreamMessage(context.Background(), tsk, "x", nil, rw)
+	p.StreamMessage(context.Background(), tsk, "x", nil, "", rw)
 
 	checks := map[string]string{
 		"Content-Type":    "text/event-stream",
@@ -207,5 +208,43 @@ func TestStreamMessage_SSEResponseHeaders(t *testing.T) {
 		if got := rw.Header().Get(k); got != want {
 			t.Errorf("header %s = %q, want %q", k, got, want)
 		}
+	}
+}
+
+func TestStreamMessage_PermissionModeInBody(t *testing.T) {
+	var capturedBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+	}))
+	defer upstream.Close()
+
+	tsk := proxyTask(upstream.URL, nil, "")
+	p := NewProxy()
+	rw := httptest.NewRecorder()
+
+	p.StreamMessage(context.Background(), tsk, "hi", nil, "bypassPermissions", rw)
+
+	if !strings.Contains(string(capturedBody), `"permissionMode":"bypassPermissions"`) {
+		t.Errorf("expected permissionMode in upstream body, got: %s", capturedBody)
+	}
+}
+
+func TestStreamMessage_EmptyPermissionModeOmitted(t *testing.T) {
+	var capturedBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+	}))
+	defer upstream.Close()
+
+	tsk := proxyTask(upstream.URL, nil, "")
+	p := NewProxy()
+	rw := httptest.NewRecorder()
+
+	p.StreamMessage(context.Background(), tsk, "hi", nil, "", rw)
+
+	if strings.Contains(string(capturedBody), "permissionMode") {
+		t.Errorf("expected permissionMode absent from upstream body when empty, got: %s", capturedBody)
 	}
 }

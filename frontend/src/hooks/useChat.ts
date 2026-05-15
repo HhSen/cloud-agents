@@ -60,7 +60,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     }
   }, [taskId])
 
-  const sendMessage = useCallback(async (prompt: string, files?: File[]) => {
+  const sendMessage = useCallback(async (prompt: string, files?: File[], permissionMode?: string) => {
     // When the agent is already running, inject as a steering message instead.
     if (sending && taskId) {
       const userMsgId = makeId()
@@ -100,7 +100,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     let sessionInitCount = 0
 
     try {
-      const response = await apiSendMessage(id, prompt, files)
+      const response = await apiSendMessage(id, prompt, files, permissionMode)
 
       if (!response.ok) {
         setMessages(prev =>

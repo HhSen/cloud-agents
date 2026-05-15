@@ -138,7 +138,7 @@ type SandboxManager interface {
 
 // Proxy is the subset of sandbox.Proxy used by TaskServiceImpl.
 type Proxy interface {
-	StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []sandbox.ContentBlock, w http.ResponseWriter) error
+	StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []sandbox.ContentBlock, permissionMode string, w http.ResponseWriter) error
 }
 
 // TaskServiceImpl implements TaskService using the real infrastructure.
@@ -165,7 +165,7 @@ func (ts *TaskServiceImpl) StreamMessage(ctx context.Context, t *task.Task, prom
 	// Drain SSE into a discard writer — the proxy still writes session.init,
 	// persists session_id, etc., because it uses the Task pointer directly.
 	w := &discardResponseWriter{}
-	return ts.Proxy.StreamMessage(ctx, t, prompt, nil, w)
+	return ts.Proxy.StreamMessage(ctx, t, prompt, nil, "bypassPermissions", w)
 }
 
 // discardResponseWriter satisfies http.ResponseWriter + http.Flusher by discarding all output.

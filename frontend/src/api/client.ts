@@ -68,10 +68,11 @@ export async function createTask(username: string, options?: CreateTaskOptions):
   return id
 }
 
-export async function sendMessage(taskId: string, prompt: string, files?: File[]): Promise<Response> {
+export async function sendMessage(taskId: string, prompt: string, files?: File[], permissionMode?: string): Promise<Response> {
   if (files && files.length > 0) {
     const form = new FormData()
     form.append('prompt', prompt)
+    if (permissionMode) form.append('permissionMode', permissionMode)
     for (const f of files) form.append('files', f)
     return fetch(`${BASE}/api/tasks/${taskId}/messages`, {
       method: 'POST',
@@ -79,10 +80,12 @@ export async function sendMessage(taskId: string, prompt: string, files?: File[]
       body: form,
     })
   }
+  const body: Record<string, unknown> = { prompt }
+  if (permissionMode) body.permissionMode = permissionMode
   return fetch(`${BASE}/api/tasks/${taskId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(body),
   })
 }
 

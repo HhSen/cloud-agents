@@ -23,7 +23,10 @@ Accepts either `application/json` or `multipart/form-data`. Both paths are suppo
 POST /api/tasks/:id/messages
 Content-Type: application/json
 
-{ "prompt": "string" }
+{
+  "prompt": "string",
+  "permissionMode": "default"|"acceptEdits"|"bypassPermissions"|"plan"|"dontAsk"|"auto"  // optional
+}
 ```
 
 **Multipart (with files)**
@@ -32,6 +35,7 @@ POST /api/tasks/:id/messages
 Content-Type: multipart/form-data; boundary=...
 
 prompt=<text>
+permissionMode=<mode>  (optional)
 files=<image-file>  (0–4 files, each ≤ 5 MB, images only)
 ```
 
@@ -126,6 +130,7 @@ func (p *Proxy) StreamMessage(
     t *task.Task,
     prompt string,
     blocks []ContentBlock,
+    permissionMode string,
     w http.ResponseWriter,
 ) error
 ```

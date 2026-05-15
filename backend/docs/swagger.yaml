@@ -230,6 +230,8 @@ definitions:
     type: object
   internal_api.sendMessageRequest:
     properties:
+      permissionMode:
+        type: string
       prompt:
         type: string
     required:

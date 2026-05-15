@@ -82,7 +82,7 @@ type mockProxy struct {
 	steerErr      error
 }
 
-func (m *mockProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, _ []sandbox.ContentBlock, w http.ResponseWriter) error {
+func (m *mockProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, _ []sandbox.ContentBlock, _ string, w http.ResponseWriter) error {
 	return m.err
 }
 
@@ -564,5 +564,56 @@ func TestHealth(t *testing.T) {
 	json.NewDecoder(rw.Body).Decode(&body)
 	if body["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", body)
+	}
+}
+
+// capturingProxy captures the permissionMode passed to StreamMessage.
+type capturingProxy struct {
+	mockProxy
+	capturedMode string
+}
+
+func (m *capturingProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, _ []sandbox.ContentBlock, pm string, w http.ResponseWriter) error {
+	m.capturedMode = pm
+	return nil
+}
+
+func TestSendMessage_PermissionModeThreaded(t *testing.T) {
+	s := task.NewStore()
+	tsk := s.Create("", nil, "")
+	store := &mockStore{task: tsk}
+	cap := &capturingProxy{}
+	h := newHandler(store, &mockManager{}, cap)
+
+	rw := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rw)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
+		strings.NewReader(`{"prompt":"hi","permissionMode":"bypassPermissions"}`))
+	c.Params = gin.Params{{Key: "id", Value: tsk.ID}}
+	h.SendMessage(c)
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rw.Code)
+	}
+	if cap.capturedMode != "bypassPermissions" {
+		t.Errorf("expected permissionMode=bypassPermissions, got %q", cap.capturedMode)
+	}
+}
+
+func TestSendMessage_InvalidPermissionMode(t *testing.T) {
+	s := task.NewStore()
+	tsk := s.Create("", nil, "")
+	store := &mockStore{task: tsk}
+	h := newHandler(store, &mockManager{}, &mockProxy{})
+
+	rw := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rw)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/tasks/"+tsk.ID+"/messages",
+		strings.NewReader(`{"prompt":"hi","permissionMode":"notAValidMode"}`))
+	c.Params = gin.Params{{Key: "id", Value: tsk.ID}}
+	h.SendMessage(c)
+
+	if rw.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rw.Code)
 	}
 }

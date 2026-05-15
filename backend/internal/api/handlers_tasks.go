@@ -168,6 +168,12 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 
 	var promptText string
 	var contentBlocks []sandbox.ContentBlock
+	var permissionMode string
+
+	var validPermissionModes = map[string]bool{
+		"default": true, "acceptEdits": true, "bypassPermissions": true,
+		"plan": true, "dontAsk": true, "auto": true,
+	}
 
 	ct := c.ContentType()
 	if strings.HasPrefix(ct, "multipart/form-data") {
@@ -182,6 +188,9 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 			return
 		}
 		promptText = prompts[0]
+		if pm := form.Value["permissionMode"]; len(pm) > 0 {
+			permissionMode = pm[0]
+		}
 		const maxFileCount = 4
 		const maxFileSize int64 = 5 * 1024 * 1024
 		fileHeaders := form.File["files"]
@@ -226,6 +235,12 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 			return
 		}
 		promptText = body.Prompt
+		permissionMode = body.PermissionMode
+	}
+
+	if permissionMode != "" && !validPermissionModes[permissionMode] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid permissionMode"})
+		return
 	}
 
 	if err := t.ResetIfExpired(func(sandboxID string) (bool, error) {
@@ -259,7 +274,7 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	if err := h.proxy.StreamMessage(c.Request.Context(), t, promptText, contentBlocks, c.Writer); err != nil {
+	if err := h.proxy.StreamMessage(c.Request.Context(), t, promptText, contentBlocks, permissionMode, c.Writer); err != nil {
 		if c.Request.Context().Err() != nil {
 			return
 		}

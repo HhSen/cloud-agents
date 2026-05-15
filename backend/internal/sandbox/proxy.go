@@ -71,7 +71,7 @@ func NewProxy() *Proxy {
 // on the first message. After a new session stream completes it also fetches
 // the session metadata to populate the task title.
 // If blocks is non-empty, a text block is prepended and the full array is sent as the prompt.
-func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []ContentBlock, w http.ResponseWriter) error {
+func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []ContentBlock, permissionMode string, w http.ResponseWriter) error {
 	proxyBaseURL, proxyHeaders := t.GetProxyInfo()
 	sessionID := t.GetSessionID()
 	isNew := sessionID == ""
@@ -83,7 +83,10 @@ func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, 
 		upstreamURL = proxyBaseURL + "/sessions/" + sessionID + "/messages"
 	}
 
-	opts := agentQueryOptions{CWD: fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)}
+	opts := agentQueryOptions{
+		CWD:            fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID),
+		PermissionMode: permissionMode,
+	}
 
 	var promptPayload any = prompt
 	if len(blocks) > 0 {

@@ -8,14 +8,36 @@ interface FileItem {
   url: string
 }
 
+type PermissionMode = '' | 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto'
+
+const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
+  '': 'Default',
+  'default': 'Default',
+  'acceptEdits': 'Accept Edits',
+  'bypassPermissions': 'Bypass All',
+  'plan': 'Plan Only',
+  'dontAsk': "Don't Ask",
+  'auto': 'Auto',
+}
+
+const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string }[] = [
+  { value: '', label: 'Default' },
+  { value: 'acceptEdits', label: 'Accept Edits' },
+  { value: 'bypassPermissions', label: 'Bypass All' },
+  { value: 'plan', label: 'Plan Only' },
+  { value: 'dontAsk', label: "Don't Ask" },
+  { value: 'auto', label: 'Auto' },
+]
+
 interface Props {
-  onSend: (prompt: string, files?: File[]) => void
+  onSend: (prompt: string, files?: File[], permissionMode?: string) => void
   isSteering?: boolean
 }
 
 export function ChatInput({ onSend, isSteering }: Props) {
   const [value, setValue] = useState('')
   const [fileItems, setFileItems] = useState<FileItem[]>([])
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const fileItemsRef = useRef<FileItem[]>(fileItems)
@@ -42,7 +64,7 @@ export function ChatInput({ onSend, isSteering }: Props) {
     const trimmed = value.trim()
     if (!trimmed) return
     const files = fileItems.map(fi => fi.file)
-    onSend(trimmed, isSteering ? undefined : files.length > 0 ? files : undefined)
+    onSend(trimmed, isSteering ? undefined : files.length > 0 ? files : undefined, isSteering ? undefined : permissionMode || undefined)
     setValue('')
     fileItems.forEach(fi => URL.revokeObjectURL(fi.url))
     setFileItems([])
@@ -141,12 +163,24 @@ export function ChatInput({ onSend, isSteering }: Props) {
           rows={1}
           className="resize-none overflow-hidden flex-1 min-h-[40px]"
         />
+        {!isSteering && (
+          <select
+            value={permissionMode}
+            onChange={e => setPermissionMode(e.target.value as PermissionMode)}
+            title="Permission mode"
+            className="flex-shrink-0 h-9 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-600 hover:border-neutral-300 focus:outline-none focus:ring-1 focus:ring-neutral-400 transition-colors cursor-pointer"
+          >
+            {PERMISSION_MODE_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )}
         <Button
           size="icon"
           onClick={submit}
           disabled={!value.trim()}
           className="flex-shrink-0"
-          title={isSteering ? 'Steer' : 'Send'}
+          title={isSteering ? 'Steer' : `Send (${PERMISSION_MODE_LABELS[permissionMode]})`}
         >
           {isSteering ? (
             <Zap className="h-4 w-4" />

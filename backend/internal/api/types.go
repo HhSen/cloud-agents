@@ -16,7 +16,8 @@ type createTaskResponse struct {
 }
 
 type sendMessageRequest struct {
-	Prompt string `json:"prompt" binding:"required"`
+	Prompt         string `json:"prompt" binding:"required"`
+	PermissionMode string `json:"permissionMode"`
 }
 
 type steerMessageRequest struct {

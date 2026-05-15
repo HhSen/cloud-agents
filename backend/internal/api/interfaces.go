@@ -46,7 +46,7 @@ type WorkspaceReader interface {
 
 // MessageProxy streams a prompt from the client through to the task's sandbox.
 type MessageProxy interface {
-	StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []sandbox.ContentBlock, w http.ResponseWriter) error
+	StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []sandbox.ContentBlock, permissionMode string, w http.ResponseWriter) error
 	SteerMessage(ctx context.Context, t *task.Task, prompt, priority string) error
 	RespondToPermission(ctx context.Context, t *task.Task, decision string) error
 	RespondToQuestion(ctx context.Context, t *task.Task, answers map[string]any) error
