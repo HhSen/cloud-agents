@@ -1,4 +1,4 @@
-import { GitBranch, PenLine, Trash2 } from 'lucide-react'
+import { Calendar, GitBranch, PenLine, Trash2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { TaskSummary } from '@/api/client'
@@ -62,6 +62,9 @@ export function HistorySidepanel({ tasks, activeTaskId, onSelectTask, onNewChat,
               )}>
                 {task.git_url && (
                   <GitBranch size={11} className="shrink-0 text-neutral-400" />
+                )}
+                {task.schedule_id && !task.git_url && (
+                  <Calendar size={11} className="shrink-0 text-blue-400" />
                 )}
                 <span className="truncate">{task.title || 'Untitled'}</span>
               </div>

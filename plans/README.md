@@ -10,6 +10,7 @@ New product platform built on top of OpenSandbox. First feature: chat with a Cla
 - [frontend-resources.md](./frontend-resources.md) — Resources page (skills + MCP management UI)
 - [ssh-key-management.md](./ssh-key-management.md) — Per-user SSH key storage + sandbox injection
 - [git-task-integration.md](./git-task-integration.md) — Optional git URL per task; clone on provision (depends on SSH plan)
+- [scheduled-tasks.md](./scheduled-tasks.md) — User-created scheduled tasks; cron/one-shot triggers; per-run history
 
 ## Archived (implemented)
 

@@ -113,7 +113,7 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 		}
 	}
 
-	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env, body.GitURL)
+	t, err := h.store.Create(c.Request.Context(), body.Username, body.Env, body.GitURL, "")
 	if err != nil {
 		logger.Default().Error("create task", "err", err)
 		c.String(http.StatusInternalServerError, "failed to create task")

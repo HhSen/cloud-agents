@@ -15,6 +15,7 @@ Before touching any backend code, read the relevant spec documents in `backend/d
 | [`docs/specs/ofsspec.md`](docs/specs/ofsspec.md) | Any change to OFS file access or session history |
 | [`docs/specs/workspace.md`](docs/specs/workspace.md) | Any change to the workspace/filesystem proxy |
 | [`docs/specs/configuration.md`](docs/specs/configuration.md) | Any change to config fields or YAML structure |
+| [`docs/specs/scheduled-tasks.md`](docs/specs/scheduled-tasks.md) | Any change to the cron scheduler, `scheduled_tasks` table, or `schedule_id` on tasks |
 
 ## Commands
 

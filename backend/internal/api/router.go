@@ -17,6 +17,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// ScheduleService abstracts the schedule CRUD service for the router.
+type ScheduleService = ScheduleStore
+
 // RouterDeps collects all wired-up dependencies for the router.
 type RouterDeps struct {
 	Store           TaskStore
@@ -27,6 +30,7 @@ type RouterDeps struct {
 	OFSReader       ResourceReader     // nil → resource content read returns 503
 	WorkspaceReader WorkspaceReader    // nil → OFS workspace browsing returns 409
 	UserRepo        db.UserRepository  // nil → user settings update returns 503
+	ScheduleService ScheduleService    // nil → schedule API unavailable
 	DB              *gorm.DB           // kept for auth.BearerAuth and OIDC/SSO middleware
 	CORSOrigin      string
 	Redis           *redis.Client    // nil → CLI OIDC flow unavailable
@@ -53,6 +57,11 @@ func NewRouter(deps RouterDeps) http.Handler {
 		sshKeySecret = deps.Cfg.Security.SSHKeySecret
 	}
 	userH := NewUserHandler(deps.UserRepo, sshKeySecret)
+
+	var schedH *ScheduleHandler
+	if deps.ScheduleService != nil {
+		schedH = NewScheduleHandler(deps.ScheduleService, deps.Store, deps.Manager, sandbox.NewProxy())
+	}
 
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -107,6 +116,18 @@ func NewRouter(deps RouterDeps) http.Handler {
 
 		protected.GET("/user/settings", userH.GetUserSettings)
 		protected.PUT("/user/settings", userH.UpdateUserSettings)
+
+		if schedH != nil {
+			protected.GET("/schedules", schedH.ListSchedules)
+			protected.POST("/schedules", schedH.CreateSchedule)
+			protected.GET("/schedules/:id", schedH.GetSchedule)
+			protected.PUT("/schedules/:id", schedH.UpdateSchedule)
+			protected.DELETE("/schedules/:id", schedH.DeleteSchedule)
+			protected.POST("/schedules/:id/enable", schedH.EnableSchedule)
+			protected.POST("/schedules/:id/disable", schedH.DisableSchedule)
+			protected.POST("/schedules/:id/run", schedH.RunScheduleNow)
+			protected.GET("/schedules/:id/runs", schedH.ListScheduleRuns)
+		}
 	}
 
 	r.GET("/health", taskH.Health)

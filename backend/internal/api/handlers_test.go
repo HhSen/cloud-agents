@@ -29,12 +29,16 @@ type mockStore struct {
 	task *task.Task
 }
 
-func (m *mockStore) Create(_ context.Context, username string, env map[string]string, gitURL string) (*task.Task, error) {
+func (m *mockStore) Create(_ context.Context, username string, env map[string]string, gitURL string, _ string) (*task.Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := task.NewStore()
 	m.task = s.Create(username, env, gitURL)
 	return m.task, nil
+}
+
+func (m *mockStore) ListBySchedule(_ context.Context, _ string) ([]task.TaskSummary, error) {
+	return nil, nil
 }
 
 func (m *mockStore) Get(_ context.Context, id string) (*task.Task, error) {

@@ -38,6 +38,23 @@ erDiagram
         bool    provisioned
         string  git_url          "optional; repo cloned at provision time"
         text    error_msg        "set when state=Error; clone failure detail"
+        string  schedule_id      "nullable FK → scheduled_tasks.id; set for schedule-triggered runs"
+    }
+
+    SCHEDULED_TASK {
+        string  id           PK  "UUID"
+        uint    user_id      FK
+        string  title
+        text    prompt           "sent to the agent on each firing"
+        string  cron_expr        "robfig/cron expression or @once"
+        datetime run_at          "non-null only for @once schedules"
+        text    extra_env        "JSON map"
+        string  git_url
+        int     timeout_secs     "default 1800"
+        int     concurrency      "0=skip, 1=allow parallel"
+        bool    enabled
+        datetime last_run_at
+        datetime next_run_at
     }
 
     SANDBOX_REDIS {
@@ -52,10 +69,12 @@ erDiagram
         string session_meta      ".claude/sessions/{pid}.json"
     }
 
-    USER ||--o{ TASK          : "owns"
-    USER ||--o{ KIND          : "owns"
-    TASK ||--o| SANDBOX_REDIS : "routes to (transient)"
-    TASK ||--o| OFS_SESSION   : "history stored under task_id"
+    USER ||--o{ TASK           : "owns"
+    USER ||--o{ KIND           : "owns"
+    USER ||--o{ SCHEDULED_TASK : "owns"
+    SCHEDULED_TASK ||--o{ TASK : "fires (schedule_id)"
+    TASK ||--o| SANDBOX_REDIS  : "routes to (transient)"
+    TASK ||--o| OFS_SESSION    : "history stored under task_id"
 ```
 
 Where `KIND` is:
@@ -85,7 +104,12 @@ KIND {
 │             │ anthropic_api_key_enc (TEXT, AES-256-GCM encrypted key or '') │
 │  tasks:  id │ user_id(FK) │ state │ title │ session_id │ extra_env │       │
 │             │ provisioned │ git_url (VARCHAR 512, nullable) │ error_msg     │
-│             │ (TEXT, nullable) │ created_at │ updated_at                   │
+│             │ (TEXT, nullable) │ schedule_id (VARCHAR 36, nullable, index) │
+│             │ created_at │ updated_at                                       │
+│  scheduled_tasks: id │ user_id(FK) │ title │ prompt │ cron_expr │          │
+│             │ run_at (nullable) │ extra_env │ git_url │ timeout_secs │      │
+│             │ concurrency │ enabled │ last_run_at │ next_run_at │          │
+│             │ created_at │ updated_at                                       │
 │  kinds:  id │ user_id(FK) │ kind │ name │ ofs_path │ meta(JSON) │          │
 │             │ is_active │ created_at │ updated_at                          │
 │             │ UNIQUE(user_id, kind, name)                                  │
@@ -248,3 +272,4 @@ User data in OFS (`{username}/history/...` and `{username}/.claude/...`) is **no
 - [`ssh-key-management.md`](ssh-key-management.md) — Per-user SSH key: encryption, API, sandbox injection
 - [`anthropic-key-management.md`](anthropic-key-management.md) — Per-user Anthropic API key: encryption, API, sandbox injection
 - [`git-task-integration.md`](git-task-integration.md) — Optional git repository cloning at provision time (`git_url`, `error_msg`)
+- [`scheduled-tasks.md`](scheduled-tasks.md) — Scheduled task templates (`scheduled_tasks` table, `schedule_id` on tasks, cron runner)

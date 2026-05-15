@@ -17,6 +17,7 @@ import (
 	"github.com/l-lab/cloud-agents/internal/db"
 	oidcpkg "github.com/l-lab/cloud-agents/internal/oidc"
 	"github.com/l-lab/cloud-agents/internal/sandbox"
+	"github.com/l-lab/cloud-agents/internal/schedule"
 	ssopkg "github.com/l-lab/cloud-agents/internal/sso"
 	"github.com/l-lab/cloud-agents/internal/storage"
 	"github.com/l-lab/cloud-agents/internal/task"
@@ -152,6 +153,22 @@ func main() {
 		mgr.WithSSHKeys(gormDB, cfg.Security.SSHKeySecret)
 	}
 
+	// Wire up the scheduler if enabled.
+	var schedSvc *schedule.Service
+	if cfg.Schedule.Enabled {
+		serverCtx, serverCancel := context.WithCancel(context.Background())
+		_ = serverCancel // cancelled on signal; Go runtime handles process exit
+		taskSvcImpl := &schedule.TaskServiceImpl{
+			Repo:    repo,
+			Manager: mgr,
+			Proxy:   sandbox.NewProxy(),
+		}
+		sched := schedule.NewScheduler(gormDB, taskSvcImpl)
+		sched.Start(serverCtx)
+		schedSvc = schedule.NewService(gormDB, sched)
+		logger.Default().Info("schedule: scheduler started")
+	}
+
 	router := api.NewRouter(api.RouterDeps{
 		Store:           repo,
 		Manager:         mgr,
@@ -161,6 +178,7 @@ func main() {
 		OFSReader:       ofsClient,
 		WorkspaceReader: ofsClient,
 		UserRepo:        db.NewUserRepository(gormDB),
+		ScheduleService: schedSvc,
 		CORSOrigin:      cfg.Server.CORSOrigin,
 		DB:              gormDB,
 		Redis:           rdb,

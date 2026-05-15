@@ -105,6 +105,7 @@ export interface TaskSummary {
   state: string
   git_url?: string
   error_msg?: string
+  schedule_id?: string
   created_at: string
   updated_at: string
 }
@@ -282,4 +283,115 @@ export async function updateUserSettings(body: { ssh_private_key?: string; anthr
     const data = await res.json().catch(() => ({})) as { error?: string }
     throw new Error(data.error ?? 'Failed to update settings')
   }
+}
+
+// ---- schedule API ----
+
+export interface Schedule {
+  id: string
+  title: string
+  prompt: string
+  cron_expr: string
+  run_at?: string
+  extra_env?: Record<string, string>
+  git_url?: string
+  timeout_secs: number
+  concurrency: number
+  enabled: boolean
+  last_run_at?: string
+  next_run_at?: string
+  created_at: string
+}
+
+export interface CreateSchedulePayload {
+  title?: string
+  prompt: string
+  cron_expr: string
+  run_at?: string
+  extra_env?: Record<string, string>
+  git_url?: string
+  timeout_secs?: number
+  concurrency?: number
+}
+
+export interface UpdateSchedulePayload {
+  title?: string
+  prompt?: string
+  cron_expr?: string
+  run_at?: string
+  extra_env?: Record<string, string>
+  git_url?: string
+  timeout_secs?: number
+  concurrency?: number
+}
+
+export interface ScheduleRun {
+  id: string
+  title: string
+  state: string
+  error_msg?: string
+  created_at: string
+  updated_at: string
+}
+
+export async function listSchedules(): Promise<Schedule[]> {
+  const res = await fetch(`${BASE}/api/schedules`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to list schedules')
+  return res.json() as Promise<Schedule[]>
+}
+
+export async function createSchedule(payload: CreateSchedulePayload): Promise<Schedule> {
+  const res = await fetch(`${BASE}/api/schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to create schedule')
+  }
+  return res.json() as Promise<Schedule>
+}
+
+export async function getSchedule(id: string): Promise<Schedule> {
+  const res = await fetch(`${BASE}/api/schedules/${id}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to get schedule')
+  return res.json() as Promise<Schedule>
+}
+
+export async function updateSchedule(id: string, payload: UpdateSchedulePayload): Promise<Schedule> {
+  const res = await fetch(`${BASE}/api/schedules/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(data.error ?? 'Failed to update schedule')
+  }
+  return res.json() as Promise<Schedule>
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  await fetch(`${BASE}/api/schedules/${id}`, { method: 'DELETE', headers: authHeaders() })
+}
+
+export async function enableSchedule(id: string): Promise<void> {
+  await fetch(`${BASE}/api/schedules/${id}/enable`, { method: 'POST', headers: authHeaders() })
+}
+
+export async function disableSchedule(id: string): Promise<void> {
+  await fetch(`${BASE}/api/schedules/${id}/disable`, { method: 'POST', headers: authHeaders() })
+}
+
+export async function runScheduleNow(id: string): Promise<{ task_id: string }> {
+  const res = await fetch(`${BASE}/api/schedules/${id}/run`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to trigger run')
+  return res.json() as Promise<{ task_id: string }>
+}
+
+export async function listScheduleRuns(id: string): Promise<ScheduleRun[]> {
+  const res = await fetch(`${BASE}/api/schedules/${id}/runs`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to list runs')
+  return res.json() as Promise<ScheduleRun[]>
 }

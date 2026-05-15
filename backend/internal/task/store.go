@@ -58,6 +58,8 @@ type Task struct {
 	gitURL    string            // optional repo to clone at provision time; immutable after creation
 	errorMsg  string            // last error message; set when state transitions to StateError
 
+	scheduleID string // empty for manually-created tasks; immutable after creation
+
 	// provisionMu serialises provisioning and reset. Lock order: provisionMu → mu.
 	// Not used when ops != nil (Redis lock replaces it).
 	provisionMu sync.Mutex
@@ -325,6 +327,12 @@ func (s *Store) Create(username string, extraEnv map[string]string, gitURL strin
 	return t
 }
 
+func (s *Store) CreateWithSchedule(username string, extraEnv map[string]string, gitURL, scheduleID string) *Task {
+	t := s.Create(username, extraEnv, gitURL)
+	t.scheduleID = scheduleID
+	return t
+}
+
 func (s *Store) Get(id string) *Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -347,7 +355,10 @@ func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{store: NewStore()}
 }
 
-func (r *MemoryRepository) Create(_ context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error) {
+func (r *MemoryRepository) Create(_ context.Context, username string, extraEnv map[string]string, gitURL string, scheduleID string) (*Task, error) {
+	if scheduleID != "" {
+		return r.store.CreateWithSchedule(username, extraEnv, gitURL, scheduleID), nil
+	}
 	return r.store.Create(username, extraEnv, gitURL), nil
 }
 
@@ -370,9 +381,30 @@ func (r *MemoryRepository) List(_ context.Context, username string) ([]TaskSumma
 		}
 		t.mu.RLock()
 		result = append(result, TaskSummary{
-			ID:    t.ID,
-			Title: t.title,
-			State: t.computeStateStr(),
+			ID:         t.ID,
+			Title:      t.title,
+			State:      t.computeStateStr(),
+			ScheduleID: t.scheduleID,
+		})
+		t.mu.RUnlock()
+	}
+	return result, nil
+}
+
+func (r *MemoryRepository) ListBySchedule(_ context.Context, scheduleID string) ([]TaskSummary, error) {
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+	var result []TaskSummary
+	for _, t := range r.store.tasks {
+		if t.scheduleID != scheduleID {
+			continue
+		}
+		t.mu.RLock()
+		result = append(result, TaskSummary{
+			ID:         t.ID,
+			Title:      t.title,
+			State:      t.computeStateStr(),
+			ScheduleID: t.scheduleID,
 		})
 		t.mu.RUnlock()
 	}

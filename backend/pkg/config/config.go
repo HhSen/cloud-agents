@@ -19,6 +19,12 @@ type Config struct {
 	SSO       SSOConfig       `yaml:"sso"`
 	Security  SecurityConfig  `yaml:"security"`
 	Log       LogConfig       `yaml:"log"`
+	Schedule  ScheduleConfig  `yaml:"schedule"`
+}
+
+type ScheduleConfig struct {
+	Enabled       bool `yaml:"enabled"`        // false disables the cron runner (e.g. read-only replicas)
+	MaxConcurrent int  `yaml:"max_concurrent"` // global cap on simultaneous schedule-triggered runs
 }
 
 type SecurityConfig struct {
@@ -107,6 +113,10 @@ func Load(path string) (*Config, error) {
 			ServerURL:      "http://localhost:8080",
 			Image:          "opensandbox/code-interpreter:local",
 			TimeoutSeconds: 3600,
+		},
+		Schedule: ScheduleConfig{
+			Enabled:       true,
+			MaxConcurrent: 50,
 		},
 	}
 

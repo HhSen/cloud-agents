@@ -3,14 +3,15 @@ package db
 import "time"
 
 type Task struct {
-	ID          string `gorm:"primaryKey;size:36"`
-	State       int    `gorm:"not null;default:0"`
-	Title       string `gorm:"size:255"`
-	SessionID   string `gorm:"size:36"`
-	ExtraEnv    string `gorm:"type:text"`
-	Provisioned bool   `gorm:"default:false"`
-	GitURL      string `gorm:"column:git_url;size:512"`
-	ErrorMsg    string `gorm:"column:error_msg;type:text"`
+	ID          string  `gorm:"primaryKey;size:36"`
+	State       int     `gorm:"not null;default:0"`
+	Title       string  `gorm:"size:255"`
+	SessionID   string  `gorm:"size:36"`
+	ExtraEnv    string  `gorm:"type:text"`
+	Provisioned bool    `gorm:"default:false"`
+	GitURL      string  `gorm:"column:git_url;size:512"`
+	ErrorMsg    string  `gorm:"column:error_msg;type:text"`
+	ScheduleID  *string `gorm:"column:schedule_id;size:36;default:null;index"`
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 

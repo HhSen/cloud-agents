@@ -10,23 +10,27 @@ import (
 //   - RedisRepository  — legacy all-Redis storage (tasks + sandbox in Redis)
 //   - MySQLRepository  — production: durable fields in MySQL, sandbox mapping in Redis
 type Repository interface {
-	Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error)
+	// Create creates a new task. scheduleID is empty for manually-created tasks.
+	Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string, scheduleID string) (*Task, error)
 	// Get returns nil, nil when the task does not exist.
 	Get(ctx context.Context, id string) (*Task, error)
 	Delete(ctx context.Context, id string) error
 	// List returns summaries for all tasks owned by username, newest first.
 	List(ctx context.Context, username string) ([]TaskSummary, error)
+	// ListBySchedule returns summaries for all tasks spawned by a given schedule.
+	ListBySchedule(ctx context.Context, scheduleID string) ([]TaskSummary, error)
 }
 
 // TaskSummary is a lightweight projection of Task used for listing.
 type TaskSummary struct {
-	ID        string
-	Title     string
-	State     string
-	GitURL    string
-	ErrorMsg  string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string
+	Title      string
+	State      string
+	GitURL     string
+	ErrorMsg   string
+	ScheduleID string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // taskOps is the optional persistence hook for a Task.

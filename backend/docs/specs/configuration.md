@@ -120,10 +120,11 @@ See [ofsspec.md](ofsspec.md) for the OFS file layout for session history.
 
 `db.Open` runs `AutoMigrate` on startup to create/update the following tables:
 
-| Table   | Purpose                                                                    |
-| ------- | -------------------------------------------------------------------------- |
-| `users` | User accounts (authentication)                                             |
-| `tasks` | Task state: id, username, state, title, session_id, extra_env, provisioned |
+| Table             | Purpose                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| `users`           | User accounts (authentication)                                                           |
+| `tasks`           | Task state: id, username, state, title, session_id, extra_env, provisioned, schedule_id |
+| `scheduled_tasks` | Schedule templates: cron expression, prompt, enabled flag, last/next run timestamps      |
 
 Ephemeral sandbox routing data (`sandbox_id`, `proxy_base_url`, `proxy_headers`) is **not** stored in MySQL — it lives in Redis under `sandbox:{task_id}`. See [redis-storage.md](redis-storage.md).
 
@@ -169,6 +170,25 @@ Optional. SSO routes are registered only when `app_id` is non-empty.
 | `callback_url` | Callback URL registered in UPM (e.g. `http://your-service/api/auth/sso/callback`). Must exactly match UPM registration — not passed dynamically. |
 
 > **Note:** The `callback_url` value must match what is registered in UPM for the given `app_id`. The SSO server uses the UPM-registered value; this field is purely for documentation and operational reference.
+
+---
+
+## `schedule`
+
+Optional. Controls the cron scheduler.
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `true` | Set to `false` to disable the cron runner (e.g. on read-only replicas). CRUD endpoints remain available; no schedules fire. |
+| `max_concurrent` | `50` | Global cap on simultaneous schedule-triggered sandbox runs. |
+
+```yaml
+schedule:
+  enabled: true
+  max_concurrent: 50
+```
+
+See [`scheduled-tasks.md`](scheduled-tasks.md) for the full design.
 
 ---
 
@@ -247,4 +267,8 @@ sso:
 
 security:
   ssh_key_secret: ""      # 32-byte hex; generate with: openssl rand -hex 32
+
+schedule:
+  enabled: true
+  max_concurrent: 50
 ```

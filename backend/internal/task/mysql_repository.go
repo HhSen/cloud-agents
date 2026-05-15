@@ -28,7 +28,7 @@ func NewMySQLRepository(db *gorm.DB, rdb *redis.Client) *MySQLRepository {
 	return &MySQLRepository{db: db, rdb: rdb}
 }
 
-func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string) (*Task, error) {
+func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv map[string]string, gitURL string, scheduleID string) (*Task, error) {
 	var user db.User
 	if err := r.db.WithContext(ctx).Where("user_name = ?", username).First(&user).Error; err != nil {
 		return nil, fmt.Errorf("look up user %s: %w", username, err)
@@ -48,17 +48,21 @@ func (r *MySQLRepository) Create(ctx context.Context, username string, extraEnv 
 		ExtraEnv: string(extraEnvJSON),
 		GitURL:   gitURL,
 	}
+	if scheduleID != "" {
+		rec.ScheduleID = &scheduleID
+	}
 	if err := r.db.WithContext(ctx).Create(&rec).Error; err != nil {
 		return nil, fmt.Errorf("create task: %w", err)
 	}
 
 	t := &Task{
-		ID:       id,
-		Username: username,
-		UserID:   user.ID,
-		state:    StateNew,
-		extraEnv: extraEnv,
-		gitURL:   gitURL,
+		ID:         id,
+		Username:   username,
+		UserID:     user.ID,
+		state:      StateNew,
+		extraEnv:   extraEnv,
+		gitURL:     gitURL,
+		scheduleID: scheduleID,
 	}
 	t.ops = &mysqlTaskOps{db: r.db, rdb: r.rdb, lock: redisLock{rdb: r.rdb, taskID: id}}
 	return t, nil
@@ -136,14 +140,44 @@ func (r *MySQLRepository) List(ctx context.Context, username string) ([]TaskSumm
 	}
 	summaries := make([]TaskSummary, len(records))
 	for i, rec := range records {
+		sid := ""
+		if rec.ScheduleID != nil {
+			sid = *rec.ScheduleID
+		}
 		summaries[i] = TaskSummary{
-			ID:        rec.ID,
-			Title:     rec.Title,
-			State:     StateString(State(rec.State), rec.SessionID != ""),
-			GitURL:    rec.GitURL,
-			ErrorMsg:  rec.ErrorMsg,
-			CreatedAt: rec.CreatedAt,
-			UpdatedAt: rec.UpdatedAt,
+			ID:         rec.ID,
+			Title:      rec.Title,
+			State:      StateString(State(rec.State), rec.SessionID != ""),
+			GitURL:     rec.GitURL,
+			ErrorMsg:   rec.ErrorMsg,
+			ScheduleID: sid,
+			CreatedAt:  rec.CreatedAt,
+			UpdatedAt:  rec.UpdatedAt,
+		}
+	}
+	return summaries, nil
+}
+
+func (r *MySQLRepository) ListBySchedule(ctx context.Context, scheduleID string) ([]TaskSummary, error) {
+	var records []db.Task
+	if err := r.db.WithContext(ctx).
+		Where("schedule_id = ?", scheduleID).
+		Order("created_at DESC").
+		Limit(100).
+		Find(&records).Error; err != nil {
+		return nil, fmt.Errorf("list tasks for schedule %s: %w", scheduleID, err)
+	}
+	summaries := make([]TaskSummary, len(records))
+	for i, rec := range records {
+		summaries[i] = TaskSummary{
+			ID:         rec.ID,
+			Title:      rec.Title,
+			State:      StateString(State(rec.State), rec.SessionID != ""),
+			GitURL:     rec.GitURL,
+			ErrorMsg:   rec.ErrorMsg,
+			ScheduleID: scheduleID,
+			CreatedAt:  rec.CreatedAt,
+			UpdatedAt:  rec.UpdatedAt,
 		}
 	}
 	return summaries, nil

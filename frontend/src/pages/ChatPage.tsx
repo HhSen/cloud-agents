@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeft, Blocks, FolderOpen, Settings } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { PanelLeft, Blocks, Calendar, FolderOpen, Settings } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChatInput } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { HistorySidepanel } from '@/components/HistorySidepanel'
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 
 export function ChatPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const username = getAuthUsername() ?? ''
 
   const [workspaceOpen, setWorkspaceOpen] = useState(false)
@@ -93,6 +94,15 @@ export function ChatPage() {
   useEffect(() => {
     if (taskId) refreshTasks()
   }, [taskId, refreshTasks])
+
+  // Open a specific task when navigated here with ?task=<id>
+  useEffect(() => {
+    const targetId = searchParams.get('task')
+    if (targetId) {
+      setSearchParams({}, { replace: true })
+      handleSelectTask(targetId)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -216,6 +226,13 @@ export function ChatPage() {
             <span className="font-semibold text-sm">Lucas</span>
           </div>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => navigate('/schedules')}
+              className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
+              title="Schedules"
+            >
+              <Calendar size={16} />
+            </button>
             <button
               onClick={() => navigate('/resources')}
               className="p-1.5 rounded hover:bg-neutral-100 text-neutral-500 hover:text-neutral-700 transition-colors"
