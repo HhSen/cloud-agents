@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/l-lab/cloud-agents/internal/sandbox"
 	"github.com/l-lab/cloud-agents/internal/task"
 )
 
@@ -78,10 +79,15 @@ type mockProxy struct {
 	err           error
 	permissionErr error
 	questionErr   error
+	steerErr      error
 }
 
-func (m *mockProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, w http.ResponseWriter) error {
+func (m *mockProxy) StreamMessage(_ context.Context, _ *task.Task, _ string, _ []sandbox.ContentBlock, w http.ResponseWriter) error {
 	return m.err
+}
+
+func (m *mockProxy) SteerMessage(_ context.Context, _ *task.Task, _, _ string) error {
+	return m.steerErr
 }
 
 func (m *mockProxy) RespondToPermission(_ context.Context, _ *task.Task, _ string) error {

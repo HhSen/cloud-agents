@@ -64,6 +64,7 @@ export interface Message {
   permissionRequest?: PermissionRequest
   pendingQuestions?: Question[]
   answeredQuestions?: AnsweredQuestion[]
+  attachments?: { name: string; blob: Blob }[]
 }
 
 export interface ToolActivity {

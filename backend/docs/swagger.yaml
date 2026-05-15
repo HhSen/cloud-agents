@@ -31,6 +31,30 @@ definitions:
     - kind
     - name
     type: object
+  internal_api.createScheduleRequest:
+    properties:
+      concurrency:
+        type: integer
+      cron_expr:
+        type: string
+      extra_env:
+        additionalProperties:
+          type: string
+        type: object
+      git_url:
+        type: string
+      prompt:
+        type: string
+      run_at:
+        type: string
+      timeout_secs:
+        type: integer
+      title:
+        type: string
+    required:
+    - cron_expr
+    - prompt
+    type: object
   internal_api.createTaskRequest:
     properties:
       env:
@@ -128,7 +152,6 @@ definitions:
   internal_api.respondToPermissionRequest:
     properties:
       decision:
-        description: '"allow" or "deny"'
         type: string
     required:
     - decision
@@ -140,6 +163,21 @@ definitions:
         type: object
     required:
     - answers
+    type: object
+  internal_api.runListItem:
+    properties:
+      created_at:
+        type: string
+      error_msg:
+        type: string
+      id:
+        type: string
+      state:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
     type: object
   internal_api.runtimeConfigResponse:
     properties:
@@ -154,8 +192,54 @@ definitions:
       ssoLoginText:
         type: string
     type: object
+  internal_api.scheduleResponse:
+    properties:
+      concurrency:
+        type: integer
+      created_at:
+        type: string
+      cron_expr:
+        type: string
+      enabled:
+        type: boolean
+      extra_env:
+        additionalProperties:
+          type: string
+        type: object
+      git_url:
+        type: string
+      id:
+        type: string
+      last_run_at:
+        type: string
+      next_run_at:
+        type: string
+      prompt:
+        type: string
+      run_at:
+        type: string
+      timeout_secs:
+        type: integer
+      title:
+        type: string
+    type: object
+  internal_api.scheduleRunResponse:
+    properties:
+      task_id:
+        type: string
+    type: object
   internal_api.sendMessageRequest:
     properties:
+      prompt:
+        type: string
+    required:
+    - prompt
+    type: object
+  internal_api.steerMessageRequest:
+    properties:
+      priority:
+        description: '"now" | "next" | "later"'
+        type: string
       prompt:
         type: string
     required:
@@ -170,6 +254,8 @@ definitions:
       git_url:
         type: string
       id:
+        type: string
+      schedule_id:
         type: string
       state:
         type: string
@@ -194,13 +280,38 @@ definitions:
           type: integer
         type: array
     type: object
+  internal_api.updateScheduleRequest:
+    properties:
+      concurrency:
+        type: integer
+      cron_expr:
+        type: string
+      extra_env:
+        additionalProperties:
+          type: string
+        type: object
+      git_url:
+        type: string
+      prompt:
+        type: string
+      run_at:
+        type: string
+      timeout_secs:
+        type: integer
+      title:
+        type: string
+    type: object
   internal_api.updateUserSettingsRequest:
     properties:
+      anthropic_api_key:
+        type: string
       ssh_private_key:
         type: string
     type: object
   internal_api.userSettingsResponse:
     properties:
+      has_anthropic_key:
+        type: boolean
       has_ssh_key:
         type: boolean
     type: object
@@ -854,6 +965,200 @@ paths:
       summary: Frontend runtime config
       tags:
       - meta
+  /api/schedules:
+    get:
+      description: List all schedules for the authenticated user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.scheduleResponse'
+            type: array
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: List schedules
+      tags:
+      - schedules
+    post:
+      consumes:
+      - application/json
+      description: Create a new scheduled task.
+      parameters:
+      - description: Create schedule request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.createScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_api.scheduleResponse'
+        "400":
+          description: invalid request
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "401":
+          description: unauthorized
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Create a schedule
+      tags:
+      - schedules
+  /api/schedules/{id}:
+    delete:
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Delete a schedule
+      tags:
+      - schedules
+    get:
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.scheduleResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Get a schedule
+      tags:
+      - schedules
+    put:
+      consumes:
+      - application/json
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.updateScheduleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.scheduleResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Update a schedule
+      tags:
+      - schedules
+  /api/schedules/{id}/disable:
+    post:
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Disable a schedule
+      tags:
+      - schedules
+  /api/schedules/{id}/enable:
+    post:
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Enable a schedule
+      tags:
+      - schedules
+  /api/schedules/{id}/run:
+    post:
+      description: Fires the schedule immediately and returns the task ID of the spawned
+        run.
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_api.scheduleRunResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Trigger a manual run of a schedule
+      tags:
+      - schedules
+  /api/schedules/{id}/runs:
+    get:
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_api.runListItem'
+            type: array
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: List past runs for a schedule
+      tags:
+      - schedules
   /api/tasks:
     get:
       description: Returns task summaries ordered by most recently updated.
@@ -951,8 +1256,7 @@ paths:
   /api/tasks/{id}/execd/{path}:
     get:
       description: Forwards any method+path to the execd daemon (port 44772) inside
-        the task's sandbox. Supports GET /files/search, GET /files/download, POST
-        /directories, etc.
+        the task's sandbox.
       parameters:
       - description: Task ID
         in: path
@@ -996,7 +1300,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: Raw session entries (see @anthropic-ai/claude-agent-sdk SDKMessage)
+          description: Raw session entries
           schema:
             items:
               type: object
@@ -1020,8 +1324,10 @@ paths:
     post:
       consumes:
       - application/json
+      - multipart/form-data
       description: Lazily provisions the task sandbox on first use and streams the
-        assistant response back to the caller.
+        assistant response back to the caller. Accepts JSON or multipart/form-data
+        (with image attachments).
       parameters:
       - description: Task ID
         in: path
@@ -1132,6 +1438,50 @@ paths:
       summary: Respond to a pending AskUserQuestion request
       tags:
       - tasks
+  /api/tasks/{id}/steer:
+    post:
+      consumes:
+      - application/json
+      description: Inject a message into an already-running agent session. Returns
+        202 if injected, 409 if no active run.
+      parameters:
+      - description: Task ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Steer message request
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/internal_api.steerMessageRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: ok
+          schema:
+            type: object
+        "400":
+          description: invalid request body
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "404":
+          description: task not found
+          schema:
+            type: string
+        "409":
+          description: no active run
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+        "502":
+          description: upstream error
+          schema:
+            $ref: '#/definitions/internal_api.errorResponse'
+      summary: Steer an active agent run
+      tags:
+      - tasks
   /api/tasks/{id}/workspace/file:
     get:
       parameters:
@@ -1222,8 +1572,8 @@ paths:
     put:
       consumes:
       - application/json
-      description: Save or clear the user's SSH private key. Empty string clears the
-        stored key.
+      description: Save or clear the user's SSH private key and/or Anthropic API key.
+        Pass an empty string to clear a key. At least one field must be provided.
       parameters:
       - description: Settings update
         in: body
@@ -1237,7 +1587,7 @@ paths:
         "204":
           description: No Content
         "400":
-          description: invalid PEM or request body
+          description: invalid request body
           schema:
             $ref: '#/definitions/internal_api.errorResponse'
         "401":

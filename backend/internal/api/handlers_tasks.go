@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/l-lab/cloud-agents/internal/auth"
+	"github.com/l-lab/cloud-agents/internal/sandbox"
 	"github.com/l-lab/cloud-agents/internal/task"
 	"github.com/l-lab/cloud-agents/pkg/logger"
 )
@@ -128,12 +132,14 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 // SendMessage handles POST /api/tasks/:id/messages.
 //
 // Lazily provisions the task's sandbox on first use, then streams the
-// assistant response back to the caller.
+// assistant response back to the caller. Accepts either application/json
+// ({"prompt":"..."}) or multipart/form-data (prompt field + optional files).
 //
 // @Summary      Send a message to a task
-// @Description  Lazily provisions the task sandbox on first use and streams the assistant response back to the caller.
+// @Description  Lazily provisions the task sandbox on first use and streams the assistant response back to the caller. Accepts JSON or multipart/form-data (with image attachments).
 // @Tags         tasks
 // @Accept       json
+// @Accept       multipart/form-data
 // @Produce      plain
 // @Param        id    path      string             true  "Task ID"
 // @Param        body  body      sendMessageRequest true  "Send message request"
@@ -160,10 +166,66 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	var body sendMessageRequest
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.String(http.StatusBadRequest, "prompt is required")
-		return
+	var promptText string
+	var contentBlocks []sandbox.ContentBlock
+
+	ct := c.ContentType()
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		form, err := c.MultipartForm()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		prompts := form.Value["prompt"]
+		if len(prompts) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "prompt required"})
+			return
+		}
+		promptText = prompts[0]
+		const maxFileCount = 4
+		const maxFileSize int64 = 5 * 1024 * 1024
+		fileHeaders := form.File["files"]
+		if len(fileHeaders) > maxFileCount {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "too many files (max 4)"})
+			return
+		}
+		for _, fh := range fileHeaders {
+			if fh.Size > maxFileSize {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "file too large (max 5 MB)"})
+				return
+			}
+			f, err := fh.Open()
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			data, readErr := io.ReadAll(f)
+			f.Close()
+			if readErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read file"})
+				return
+			}
+			mime := fh.Header.Get("Content-Type")
+			if !isSupportedImageMIME(mime) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported file type: " + mime})
+				return
+			}
+			contentBlocks = append(contentBlocks, sandbox.ContentBlock{
+				Type: "image",
+				Source: &sandbox.ImageSource{
+					Type:      "base64",
+					MediaType: mime,
+					Data:      base64.StdEncoding.EncodeToString(data),
+				},
+			})
+		}
+	} else {
+		var body sendMessageRequest
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.String(http.StatusBadRequest, "prompt is required")
+			return
+		}
+		promptText = body.Prompt
 	}
 
 	if err := t.ResetIfExpired(func(sandboxID string) (bool, error) {
@@ -197,12 +259,76 @@ func (h *TaskHandler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	if err := h.proxy.StreamMessage(c.Request.Context(), t, body.Prompt, c.Writer); err != nil {
+	if err := h.proxy.StreamMessage(c.Request.Context(), t, promptText, contentBlocks, c.Writer); err != nil {
 		if c.Request.Context().Err() != nil {
 			return
 		}
 		log.Error("stream error", "err", err)
 	}
+}
+
+func isSupportedImageMIME(m string) bool {
+	switch m {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return true
+	}
+	return false
+}
+
+// SteerMessage handles POST /api/tasks/:id/steer.
+//
+// @Summary      Steer an active agent run
+// @Description  Inject a message into an already-running agent session. Returns 202 if injected, 409 if no active run.
+// @Tags         tasks
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Task ID"
+// @Param        body  body  steerMessageRequest true  "Steer message request"
+// @Success      202   {object}  object          "ok"
+// @Failure      400   {object}  errorResponse   "invalid request body"
+// @Failure      404   {string}  string          "task not found"
+// @Failure      409   {object}  errorResponse   "no active run"
+// @Failure      502   {object}  errorResponse   "upstream error"
+// @Router       /api/tasks/{id}/steer [post]
+func (h *TaskHandler) SteerMessage(c *gin.Context) {
+	id := c.Param("id")
+	log := logger.Default().With("task_id", id)
+	t, err := h.store.Get(c.Request.Context(), id)
+	if err != nil {
+		log.Error("get task", "err", err)
+		c.String(http.StatusInternalServerError, "failed to get task")
+		return
+	}
+	if t == nil {
+		c.String(http.StatusNotFound, "task not found")
+		return
+	}
+	if checkTaskOwner(c, t.Username) {
+		return
+	}
+
+	var body steerMessageRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "prompt is required"})
+		return
+	}
+
+	if body.Priority != "" && body.Priority != "now" && body.Priority != "next" && body.Priority != "later" {
+		c.JSON(http.StatusBadRequest, errorResponse{Error: "priority must be 'now', 'next', or 'later'"})
+		return
+	}
+
+	if err := h.proxy.SteerMessage(c.Request.Context(), t, body.Prompt, body.Priority); err != nil {
+		if errors.Is(err, sandbox.ErrNoActiveRun) {
+			c.JSON(http.StatusConflict, errorResponse{Error: err.Error()})
+			return
+		}
+		log.Error("steer message", "err", err)
+		c.JSON(http.StatusBadGateway, errorResponse{Error: err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusAccepted, gin.H{"ok": true})
 }
 
 // GetTask handles GET /api/tasks/:id.

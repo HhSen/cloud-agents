@@ -95,6 +95,7 @@ func NewRouter(deps RouterDeps) http.Handler {
 		protected.GET("/tasks", taskH.ListTasks)
 		protected.POST("/tasks", taskH.CreateTask)
 		protected.POST("/tasks/:id/messages", taskH.SendMessage)
+		protected.POST("/tasks/:id/steer", taskH.SteerMessage)
 		protected.GET("/tasks/:id", taskH.GetTask)
 		protected.GET("/tasks/:id/history", taskH.GetTaskHistory)
 		protected.DELETE("/tasks/:id", taskH.DeleteTask)

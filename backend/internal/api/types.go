@@ -19,6 +19,11 @@ type sendMessageRequest struct {
 	Prompt string `json:"prompt" binding:"required"`
 }
 
+type steerMessageRequest struct {
+	Prompt   string `json:"prompt" binding:"required"`
+	Priority string `json:"priority"` // "now" | "next" | "later"
+}
+
 type getTaskResponse struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,23 @@ import (
 
 	"github.com/l-lab/cloud-agents/internal/task"
 )
+
+// ErrNoActiveRun is returned by SteerMessage when the task has no active agent run.
+var ErrNoActiveRun = errors.New("no active run for session")
+
+// ImageSource describes the data source for an image content block.
+type ImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+	Data      string `json:"data"`
+}
+
+// ContentBlock is a typed content block accepted by claude-agent-server as part of a prompt.
+type ContentBlock struct {
+	Type   string       `json:"type"`             // "text" or "image"
+	Text   string       `json:"text,omitempty"`
+	Source *ImageSource `json:"source,omitempty"`
+}
 
 // agentQueryOptions mirrors the QueryOptions schema accepted by claude-agent-server.
 type agentQueryOptions struct {
@@ -40,23 +58,6 @@ type ToolsPreset struct {
 	Preset string `json:"preset"`
 }
 
-// createSessionRequest is the body for POST /sessions.
-type createSessionRequest struct {
-	Prompt                 string            `json:"prompt"`
-	Stream                 bool              `json:"stream"`
-	IncludePartialMessages bool              `json:"includePartialMessages,omitempty"`
-	Options                agentQueryOptions `json:"options,omitempty"`
-}
-
-// sendMessageRequest is the body for POST /sessions/:id/messages.
-type sendMessageRequest struct {
-	Prompt                 string            `json:"prompt"`
-	Stream                 bool              `json:"stream"`
-	IncludePartialMessages bool              `json:"includePartialMessages,omitempty"`
-	ForkSession            bool              `json:"forkSession,omitempty"`
-	Options                agentQueryOptions `json:"options,omitempty"`
-}
-
 type Proxy struct {
 	client *http.Client
 }
@@ -69,7 +70,8 @@ func NewProxy() *Proxy {
 // response back to w. It extracts the agentSessionID from the session.init event
 // on the first message. After a new session stream completes it also fetches
 // the session metadata to populate the task title.
-func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, w http.ResponseWriter) error {
+// If blocks is non-empty, a text block is prepended and the full array is sent as the prompt.
+func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, blocks []ContentBlock, w http.ResponseWriter) error {
 	proxyBaseURL, proxyHeaders := t.GetProxyInfo()
 	sessionID := t.GetSessionID()
 	isNew := sessionID == ""
@@ -82,13 +84,31 @@ func (p *Proxy) StreamMessage(ctx context.Context, t *task.Task, prompt string, 
 	}
 
 	opts := agentQueryOptions{CWD: fmt.Sprintf("/workspace/%s/%s", t.Username, t.ID)}
-	var reqBody any
-	if isNew {
-		reqBody = createSessionRequest{Prompt: prompt, Stream: true, Options: opts}
-	} else {
-		reqBody = sendMessageRequest{Prompt: prompt, Stream: true, Options: opts, IncludePartialMessages: true, ForkSession: false}
+
+	var promptPayload any = prompt
+	if len(blocks) > 0 {
+		full := []ContentBlock{{Type: "text", Text: prompt}}
+		full = append(full, blocks...)
+		promptPayload = full
 	}
-	body, err := json.Marshal(reqBody)
+
+	var reqBodyMap map[string]any
+	if isNew {
+		reqBodyMap = map[string]any{
+			"prompt":  promptPayload,
+			"stream":  true,
+			"options": opts,
+		}
+	} else {
+		reqBodyMap = map[string]any{
+			"prompt":                 promptPayload,
+			"stream":                 true,
+			"includePartialMessages": true,
+			"forkSession":            false,
+			"options":                opts,
+		}
+	}
+	body, err := json.Marshal(reqBodyMap)
 	if err != nil {
 		return fmt.Errorf("marshal body: %w", err)
 	}
@@ -224,6 +244,55 @@ func (p *Proxy) fetchSessionTitle(ctx context.Context, proxyBaseURL string, prox
 		return meta.Session.FirstPrompt
 	}
 	return fallback
+}
+
+// SteerMessage injects a prompt into an already-running agent session without
+// opening a new SSE stream. The injected message's effects arrive on the
+// existing open SSE connection.
+func (p *Proxy) SteerMessage(ctx context.Context, t *task.Task, prompt, priority string) error {
+	proxyBaseURL, proxyHeaders := t.GetProxyInfo()
+	sessionID := t.GetSessionID()
+	if sessionID == "" {
+		return ErrNoActiveRun
+	}
+
+	bodyMap := map[string]any{
+		"prompt": prompt,
+		"stream": false,
+	}
+	if priority != "" {
+		bodyMap["priority"] = priority
+	}
+
+	data, err := json.Marshal(bodyMap)
+	if err != nil {
+		return fmt.Errorf("marshal body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		proxyBaseURL+"/sessions/"+sessionID+"/messages", bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range proxyHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("steer request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusAccepted {
+		return nil
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrNoActiveRun
+	}
+	b, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("steer: unexpected status %d: %s", resp.StatusCode, b)
 }
 
 type permissionDecisionRequest struct {

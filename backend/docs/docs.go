@@ -929,6 +929,302 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/schedules": {
+            "get": {
+                "description": "List all schedules for the authenticated user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "List schedules",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.scheduleResponse"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Create a new scheduled task.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Create a schedule",
+                "parameters": [
+                    {
+                        "description": "Create schedule request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.createScheduleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.scheduleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/schedules/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Get a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.scheduleResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Update a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.updateScheduleRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.scheduleResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Delete a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/schedules/{id}/disable": {
+            "post": {
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Disable a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/schedules/{id}/enable": {
+            "post": {
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Enable a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
+        "/api/schedules/{id}/run": {
+            "post": {
+                "description": "Fires the schedule immediately and returns the task ID of the spawned run.",
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "Trigger a manual run of a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.scheduleRunResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/schedules/{id}/runs": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "schedules"
+                ],
+                "summary": "List past runs for a schedule",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_api.runListItem"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/tasks": {
             "get": {
                 "description": "Returns task summaries ordered by most recently updated.",
@@ -1072,7 +1368,7 @@ const docTemplate = `{
         },
         "/api/tasks/{id}/execd/{path}": {
             "get": {
-                "description": "Forwards any method+path to the execd daemon (port 44772) inside the task's sandbox. Supports GET /files/search, GET /files/download, POST /directories, etc.",
+                "description": "Forwards any method+path to the execd daemon (port 44772) inside the task's sandbox.",
                 "tags": [
                     "tasks"
                 ],
@@ -1139,7 +1435,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Raw session entries (see @anthropic-ai/claude-agent-sdk SDKMessage)",
+                        "description": "Raw session entries",
                         "schema": {
                             "type": "array",
                             "items": {
@@ -1170,9 +1466,10 @@ const docTemplate = `{
         },
         "/api/tasks/{id}/messages": {
             "post": {
-                "description": "Lazily provisions the task sandbox on first use and streams the assistant response back to the caller.",
+                "description": "Lazily provisions the task sandbox on first use and streams the assistant response back to the caller. Accepts JSON or multipart/form-data (with image attachments).",
                 "consumes": [
-                    "application/json"
+                    "application/json",
+                    "multipart/form-data"
                 ],
                 "produces": [
                     "text/plain"
@@ -1339,6 +1636,71 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/tasks/{id}/steer": {
+            "post": {
+                "description": "Inject a message into an already-running agent session. Returns 202 if injected, 409 if no active run.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "summary": "Steer an active agent run",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Task ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Steer message request",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.steerMessageRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "ok",
+                        "schema": {
+                            "type": "object"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid request body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "task not found",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "409": {
+                        "description": "no active run",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    },
+                    "502": {
+                        "description": "upstream error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_api.errorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/tasks/{id}/workspace/file": {
             "get": {
                 "tags": [
@@ -1471,7 +1833,7 @@ const docTemplate = `{
                 }
             },
             "put": {
-                "description": "Save or clear the user's SSH private key. Empty string clears the stored key.",
+                "description": "Save or clear the user's SSH private key and/or Anthropic API key. Pass an empty string to clear a key. At least one field must be provided.",
                 "consumes": [
                     "application/json"
                 ],
@@ -1498,7 +1860,7 @@ const docTemplate = `{
                         "description": "No Content"
                     },
                     "400": {
-                        "description": "invalid PEM or request body",
+                        "description": "invalid request body",
                         "schema": {
                             "$ref": "#/definitions/internal_api.errorResponse"
                         }
@@ -1583,6 +1945,42 @@ const docTemplate = `{
                     }
                 },
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.createScheduleRequest": {
+            "type": "object",
+            "required": [
+                "cron_expr",
+                "prompt"
+            ],
+            "properties": {
+                "concurrency": {
+                    "type": "integer"
+                },
+                "cron_expr": {
+                    "type": "string"
+                },
+                "extra_env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "git_url": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "run_at": {
+                    "type": "string"
+                },
+                "timeout_secs": {
+                    "type": "integer"
+                },
+                "title": {
                     "type": "string"
                 }
             }
@@ -1738,7 +2136,6 @@ const docTemplate = `{
             ],
             "properties": {
                 "decision": {
-                    "description": "\"allow\" or \"deny\"",
                     "type": "string"
                 }
             }
@@ -1752,6 +2149,29 @@ const docTemplate = `{
                 "answers": {
                     "type": "object",
                     "additionalProperties": {}
+                }
+            }
+        },
+        "internal_api.runListItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "error_msg": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
                 }
             }
         },
@@ -1775,12 +2195,82 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api.scheduleResponse": {
+            "type": "object",
+            "properties": {
+                "concurrency": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "cron_expr": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "extra_env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "git_url": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "type": "string"
+                },
+                "next_run_at": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "run_at": {
+                    "type": "string"
+                },
+                "timeout_secs": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.scheduleRunResponse": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.sendMessageRequest": {
             "type": "object",
             "required": [
                 "prompt"
             ],
             "properties": {
+                "prompt": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_api.steerMessageRequest": {
+            "type": "object",
+            "required": [
+                "prompt"
+            ],
+            "properties": {
+                "priority": {
+                    "description": "\"now\" | \"next\" | \"later\"",
+                    "type": "string"
+                },
                 "prompt": {
                     "type": "string"
                 }
@@ -1799,6 +2289,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "schedule_id": {
                     "type": "string"
                 },
                 "state": {
@@ -1837,9 +2330,44 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_api.updateScheduleRequest": {
+            "type": "object",
+            "properties": {
+                "concurrency": {
+                    "type": "integer"
+                },
+                "cron_expr": {
+                    "type": "string"
+                },
+                "extra_env": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "git_url": {
+                    "type": "string"
+                },
+                "prompt": {
+                    "type": "string"
+                },
+                "run_at": {
+                    "type": "string"
+                },
+                "timeout_secs": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_api.updateUserSettingsRequest": {
             "type": "object",
             "properties": {
+                "anthropic_api_key": {
+                    "type": "string"
+                },
                 "ssh_private_key": {
                     "type": "string"
                 }
@@ -1848,6 +2376,9 @@ const docTemplate = `{
         "internal_api.userSettingsResponse": {
             "type": "object",
             "properties": {
+                "has_anthropic_key": {
+                    "type": "boolean"
+                },
                 "has_ssh_key": {
                     "type": "boolean"
                 }

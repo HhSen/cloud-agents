@@ -82,13 +82,13 @@ export function ChatPage() {
     }
   }, [anthropicKeyInput, pendingMsg, sendMessage])
 
-  const handleSend = useCallback((msg: string) => {
+  const handleSend = useCallback((msg: string, files?: File[]) => {
     if (hasAnthropicKey === false) {
       setPendingMsg(msg)
       setKeyDialogOpen(true)
       return
     }
-    sendMessage(msg)
+    sendMessage(msg, files)
   }, [hasAnthropicKey, sendMessage])
 
   useEffect(() => {
@@ -283,7 +283,7 @@ export function ChatPage() {
           </div>
         </ScrollArea>
 
-        <ChatInput onSend={handleSend} disabled={sending} />
+        <ChatInput onSend={handleSend} isSteering={sending} />
       </div>
 
       {workspaceOpen && taskId && cwd && (

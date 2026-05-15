@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { createTask, sendMessage as apiSendMessage, respondToPermission, respondToQuestion as apiRespondToQuestion } from '@/api/client'
+import { createTask, sendMessage as apiSendMessage, steerMessage as apiSteerMessage, respondToPermission, respondToQuestion as apiRespondToQuestion } from '@/api/client'
 import type { Message, PermissionRequest, Question, SandboxState, ToolActivity, ToolUseBlock } from '@/types'
 
 async function* parseSSE(response: Response) {
@@ -60,7 +60,19 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     }
   }, [taskId])
 
-  const sendMessage = useCallback(async (prompt: string) => {
+  const sendMessage = useCallback(async (prompt: string, files?: File[]) => {
+    // When the agent is already running, inject as a steering message instead.
+    if (sending && taskId) {
+      const userMsgId = makeId()
+      setMessages(prev => [...prev, { id: userMsgId, role: 'user', text: prompt, status: 'done' }])
+      try {
+        await apiSteerMessage(taskId, prompt, 'now')
+      } catch {
+        setMessages(prev => prev.map(m => m.id === userMsgId ? { ...m, status: 'error' } : m))
+      }
+      return
+    }
+
     setSending(true)
 
     let id = taskId
@@ -70,23 +82,29 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
     }
 
     const userMsgId = makeId()
-    const assistantMsgId = makeId()
-    currentAssistantMsgIdRef.current = assistantMsgId
+    const firstAssistantMsgId = makeId()
+    currentAssistantMsgIdRef.current = firstAssistantMsgId
 
+    const attachments = files?.map(f => ({ name: f.name, blob: f as Blob }))
     setMessages(prev => [
       ...prev,
-      { id: userMsgId, role: 'user', text: prompt, status: 'done' },
-      { id: assistantMsgId, role: 'assistant', text: '', status: 'streaming', toolActivity: [], toolUseBlocks: [] },
+      { id: userMsgId, role: 'user', text: prompt, status: 'done', attachments },
+      { id: firstAssistantMsgId, role: 'assistant', text: '', status: 'streaming', toolActivity: [], toolUseBlocks: [] },
     ])
 
     setSandboxState('provisioning')
 
+    // Tracks the in-flight assistant bubble for the current run. A steer can
+    // trigger a second session.init mid-stream; each new run gets its own bubble.
+    let activeId = firstAssistantMsgId
+    let sessionInitCount = 0
+
     try {
-      const response = await apiSendMessage(id, prompt)
+      const response = await apiSendMessage(id, prompt, files)
 
       if (!response.ok) {
         setMessages(prev =>
-          prev.map(m => m.id === assistantMsgId ? { ...m, status: 'error' } : m)
+          prev.map(m => m.id === activeId ? { ...m, status: 'error' } : m)
         )
         setSandboxState('error')
         setSending(false)
@@ -99,6 +117,19 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
             setSandboxState('running')
             const initData = data as { cwd?: string }
             if (initData.cwd) setCwd(initData.cwd)
+            if (sessionInitCount > 0) {
+              // A steer triggered a new run — create a fresh assistant bubble
+              // so the continuation appears as a separate message, matching
+              // the history replay structure.
+              const newId = makeId()
+              activeId = newId
+              currentAssistantMsgIdRef.current = newId
+              setMessages(prev => [
+                ...prev,
+                { id: newId, role: 'assistant', text: '', status: 'streaming', toolActivity: [], toolUseBlocks: [] },
+              ])
+            }
+            sessionInitCount++
             break
           }
           case 'message.assistant': {
@@ -113,7 +144,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
 
             setMessages(prev =>
               prev.map(m => {
-                if (m.id !== assistantMsgId) return m
+                if (m.id !== activeId) return m
                 return {
                   ...m,
                   text: text ? m.text + text : m.text,
@@ -141,14 +172,14 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
               decisionReason: d.decisionReason,
             }
             setMessages(prev =>
-              prev.map(m => m.id !== assistantMsgId ? m : { ...m, status: 'requesting', permissionRequest })
+              prev.map(m => m.id !== activeId ? m : { ...m, status: 'requesting', permissionRequest })
             )
             break
           }
           case 'question.asked': {
             const d = data as { questions: Question[] }
             setMessages(prev =>
-              prev.map(m => m.id !== assistantMsgId ? m : { ...m, status: 'asking', pendingQuestions: d.questions })
+              prev.map(m => m.id !== activeId ? m : { ...m, status: 'asking', pendingQuestions: d.questions })
             )
             break
           }
@@ -156,7 +187,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
             const status = (data as { status?: string }).status
             if (status === 'idle') {
               setMessages(prev =>
-                prev.map(m => m.id === assistantMsgId ? { ...m, status: 'done' } : m)
+                prev.map(m => m.id === activeId ? { ...m, status: 'done' } : m)
               )
             }
             break
@@ -169,7 +200,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
             }
             setMessages(prev =>
               prev.map(m =>
-                m.id === assistantMsgId
+                m.id === activeId
                   ? { ...m, toolActivity: [...(m.toolActivity ?? []), activity] }
                   : m
               )
@@ -181,7 +212,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
             const toolName = (data as { lastToolName?: string }).lastToolName
             setMessages(prev =>
               prev.map(m => {
-                if (m.id !== assistantMsgId) return m
+                if (m.id !== activeId) return m
                 const activities = [...(m.toolActivity ?? [])]
                 if (activities.length > 0) {
                   activities[activities.length - 1] = { ...activities[activities.length - 1], description, toolName }
@@ -192,15 +223,28 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
             break
           }
           case 'result': {
-            setMessages(prev =>
-              prev.map(m => m.id === assistantMsgId ? { ...m, status: 'done' } : m)
-            )
+            const resultData = data as { isError?: boolean; terminalReason?: string }
+            setMessages(prev => {
+              const msg = prev.find(m => m.id === activeId)
+              // Aborted run with no content produced — remove the empty bubble
+              if (
+                resultData.isError &&
+                resultData.terminalReason === 'aborted_streaming' &&
+                msg &&
+                !msg.text.trim() &&
+                !(msg.toolActivity?.length) &&
+                !(msg.toolUseBlocks?.length)
+              ) {
+                return prev.filter(m => m.id !== activeId)
+              }
+              return prev.map(m => m.id === activeId ? { ...m, status: 'done' } : m)
+            })
             break
           }
           case 'session.completed': {
             setMessages(prev =>
               prev.map(m => {
-                if (m.id !== assistantMsgId) return m
+                if (m.id !== activeId) return m
                 const activities = (m.toolActivity ?? []).map(a => ({ ...a, done: true }))
                 return { ...m, status: 'done', toolActivity: activities }
               })
@@ -211,7 +255,7 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
           }
           case 'error': {
             setMessages(prev =>
-              prev.map(m => m.id === assistantMsgId ? { ...m, status: 'error' } : m)
+              prev.map(m => m.id === activeId ? { ...m, status: 'error' } : m)
             )
             setSandboxState('error')
             setSending(false)
@@ -221,12 +265,12 @@ export function useChat(username: string, onSessionCompleted?: () => void) {
       }
     } catch {
       setMessages(prev =>
-        prev.map(m => m.id === assistantMsgId ? { ...m, status: 'error' } : m)
+        prev.map(m => m.id === activeId ? { ...m, status: 'error' } : m)
       )
       setSandboxState('error')
       setSending(false)
     }
-  }, [taskId, username])
+  }, [taskId, username, sending, onSessionCompleted])
 
   const newChat = useCallback(() => {
     setTaskId(null)

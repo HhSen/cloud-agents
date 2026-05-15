@@ -323,7 +323,7 @@ func (h *ScheduleHandler) RunScheduleNow(c *gin.Context) {
 			t.SetError(err.Error())
 			return
 		}
-		_ = proxy.StreamMessage(ctx, t, prompt, &discardWriter{})
+		_ = proxy.StreamMessage(ctx, t, prompt, nil, &discardWriter{})
 	}()
 
 	c.JSON(http.StatusOK, scheduleRunResponse{TaskID: t.ID})
