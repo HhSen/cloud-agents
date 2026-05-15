@@ -4,6 +4,7 @@ New product platform built on top of OpenSandbox. First feature: chat with a Cla
 
 ## Active
 
+- [stream-input-and-file-upload.md](./stream-input-and-file-upload.md) — Steering messages into active runs + image file attachments while prompting
 - [overview.md](./overview.md) — Architecture, flow, repo layout, shared API contract
 - [frontend.md](./frontend.md) — Vite+React+shadcn frontend: step-by-step
 - [frontend-resources.md](./frontend-resources.md) — Resources page (skills + MCP management UI)
