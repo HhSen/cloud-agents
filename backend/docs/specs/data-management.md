@@ -18,13 +18,14 @@ Three principal entities form the backend data model. Their storage, lifetimes, 
 ```mermaid
 erDiagram
     USER {
-        uint   id                   PK
-        string user_name            UK
+        uint   id                       PK
+        string user_name                UK
         string email
         string password_hash
         bool   is_active
         string auth_source
-        text   ssh_private_key_enc      "AES-256-GCM encrypted PEM; empty = no key"
+        text   ssh_private_key_enc          "AES-256-GCM encrypted PEM; empty = no key"
+        text   anthropic_api_key_enc        "AES-256-GCM encrypted API key; empty = no key"
     }
 
     TASK {
@@ -81,6 +82,7 @@ KIND {
 │  ─────────────────────────────────────────────────────────────────────    │
 │  users:  id │ user_name │ email │ password_hash │ is_active │ auth_source  │
 │             │ ssh_private_key_enc (TEXT, AES-256-GCM encrypted PEM or '')  │
+│             │ anthropic_api_key_enc (TEXT, AES-256-GCM encrypted key or '') │
 │  tasks:  id │ user_id(FK) │ state │ title │ session_id │ extra_env │       │
 │             │ provisioned │ git_url (VARCHAR 512, nullable) │ error_msg     │
 │             │ (TEXT, nullable) │ created_at │ updated_at                   │
@@ -194,7 +196,7 @@ State transitions:
 1. `SELECT * FROM tasks` + `HGETALL sandbox:{id}` (empty)
 2. Acquire `task-lock:{id}` (Redis, 30 s TTL)
 3. Check `tasks.provisioned` — false → run provisioning
-4. Create sandbox → health-check passes → inject SSH key → inject resources
+4. Create sandbox → health-check passes → inject Anthropic API key (env var override) → inject SSH key → inject resources
 5. If `git_url != ""`: run `git clone <git_url> .` via execd command API  
    On failure: `UPDATE tasks SET state=3, error_msg=<stderr>` → abort provisioning
 6. `SetRunning`: `UPDATE tasks SET state=2` + `HSET sandbox:{id} ...` (7-day TTL)
@@ -244,4 +246,5 @@ User data in OFS (`{username}/history/...` and `{username}/.claude/...`) is **no
 - [`ofsspec.md`](ofsspec.md) — OFS file layout and session history structure
 - [`resources.md`](resources.md) — User resources (skills/MCP): API, DB schema, OFS paths, sandbox injection
 - [`ssh-key-management.md`](ssh-key-management.md) — Per-user SSH key: encryption, API, sandbox injection
+- [`anthropic-key-management.md`](anthropic-key-management.md) — Per-user Anthropic API key: encryption, API, sandbox injection
 - [`git-task-integration.md`](git-task-integration.md) — Optional git repository cloning at provision time (`git_url`, `error_msg`)

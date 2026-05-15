@@ -46,12 +46,13 @@ sandbox:
 
 ## `anthropic`
 
-| Field                        | Required | Description                                                                                          |
-| ---------------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `api_key`                    | ✓        | Anthropic API key. Injected into every sandbox as `ANTHROPIC_API_KEY`                                |
-| `base_url`                   |          | Custom API base URL. Leave empty to use `api.anthropic.com`. Injected as `ANTHROPIC_BASE_URL` if set |
-| `model`                      |          | Model identifier (e.g. `claude-sonnet-4-6`). Injected as `ANTHROPIC_MODEL` if set                    |
-| `disable_experimental_betas` |          | Set to `"1"` to inject `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` into sandboxes                     |
+| Field                        | Description                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `base_url`                   | Custom API base URL. Leave empty to use `api.anthropic.com`. Injected as `ANTHROPIC_BASE_URL` if set |
+| `model`                      | Model identifier (e.g. `claude-sonnet-4-6`). Injected as `ANTHROPIC_MODEL` if set                    |
+| `disable_experimental_betas` | Set to `"1"` to inject `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` into sandboxes                     |
+
+There is no global `api_key` field. Each user sets their own Anthropic API key via the Settings page (`PUT /api/user/settings`). The key is stored AES-256-GCM encrypted in `users.anthropic_api_key_enc` and injected as `ANTHROPIC_API_KEY` into the user's sandbox at provision time. See [`anthropic-key-management.md`](anthropic-key-management.md).
 
 The `base_url` field is useful when routing traffic through an internal proxy or a compatible API gateway instead of calling Anthropic directly.
 
@@ -173,19 +174,19 @@ Optional. SSO routes are registered only when `app_id` is non-empty.
 
 ## `security`
 
-Optional. Controls per-user SSH key encryption for private git repository access.
+Controls per-user secret encryption. The same key is used for both SSH private keys and Anthropic API keys.
 
 | Field            | Description                                                                                                                                                                      |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ssh_key_secret` | 32-byte AES-256 key encoded as 64 hex characters. Used to encrypt/decrypt per-user SSH private keys stored in `users.ssh_private_key_enc`. Generate with `openssl rand -hex 32`. |
+| `ssh_key_secret` | 32-byte AES-256 key encoded as 64 hex characters. Used to encrypt/decrypt per-user secrets stored in `users.ssh_private_key_enc` and `users.anthropic_api_key_enc`. Generate with `openssl rand -hex 32`. |
 
 **Startup behaviour:**
-- If `ssh_key_secret` is blank and no users have a stored key: server starts normally (feature is inactive).
-- If `ssh_key_secret` is blank and any user has a stored key: server exits with an error. This prevents silently failing to decrypt keys after a configuration change.
+- If `ssh_key_secret` is blank and no users have a stored SSH key: server starts normally (feature is inactive).
+- If `ssh_key_secret` is blank and any user has a stored SSH key: server exits with an error. This prevents silently failing to decrypt keys after a configuration change.
 
-When configured, `mgr.WithSSHKeys(gormDB, sshKeySecret)` is called at startup so that the sandbox manager can inject the decrypted key into each sandbox at provision time.
+When configured, `mgr.WithSSHKeys(gormDB, sshKeySecret)` is called at startup so the sandbox manager can decrypt and inject both SSH keys and Anthropic API keys at provision time.
 
-See [`ssh-key-management.md`](ssh-key-management.md) for the full design.
+See [`ssh-key-management.md`](ssh-key-management.md) and [`anthropic-key-management.md`](anthropic-key-management.md) for the full designs.
 
 ---
 
@@ -205,10 +206,10 @@ sandbox:
   #   arch: amd64
 
 anthropic:
-  api_key: your-anthropic-api-key
   base_url: ""
   model: ""
   disable_experimental_betas: ""
+  # Note: Anthropic API keys are set per-user in Settings, not here.
 
 redis:
   url: "redis://localhost:6379"  # required — sandbox mapping + distributed locks

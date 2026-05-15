@@ -99,21 +99,21 @@ Both routes are under the `AuthMiddleware` protected group.
 
 ### GET /api/user/settings
 
-Returns whether the authenticated user has an SSH key stored.
+Returns whether the authenticated user has secrets stored.
 
 ```
 GET /api/user/settings
 Authorization: Bearer <token>
 
 200 OK
-{ "has_ssh_key": true }
+{ "has_ssh_key": true, "has_anthropic_key": false }
 ```
 
-Key material is **never returned**. `has_ssh_key` is read directly from the `db.User` loaded by `BearerAuth` middleware — no extra DB query.
+Key material is **never returned**. Both flags are read directly from the `db.User` loaded by `BearerAuth` middleware — no extra DB query.
 
 ### PUT /api/user/settings
 
-Save or clear the user's SSH private key.
+Save or clear per-user secrets. The request body accepts `ssh_private_key`, `anthropic_api_key`, or both; at least one field must be present.
 
 ```
 PUT /api/user/settings
@@ -123,13 +123,15 @@ Content-Type: application/json
 { "ssh_private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\n..." }
 ```
 
-The `ssh_private_key` field is **required**. Omitting it returns `400` to prevent accidentally clearing a stored key when a client sends a partial update body. To explicitly clear:
+To explicitly clear a key, pass an empty string for that field:
 
 ```json
 { "ssh_private_key": "" }
 ```
 
-**Validation (on non-empty value):**
+Fields not present in the body are left unchanged.
+
+**SSH key validation (on non-empty value):**
 1. `ssh.ParseRawPrivateKey` verifies the PEM is a valid, unencrypted private key. Passphrase-protected keys are rejected (`400`) — they cannot be injected automatically.
 2. AES-256-GCM encrypt with `config.Security.SSHKeySecret`.
 3. `UPDATE users SET ssh_private_key_enc = ?`.
@@ -138,7 +140,7 @@ The `ssh_private_key` field is **required**. Omitting it returns `400` to preven
 
 | Status | Body | Cause |
 |--------|------|-------|
-| `400` | `ssh_private_key is required` | Field absent from body |
+| `400` | `at least one field must be provided` | Body contained neither `ssh_private_key` nor `anthropic_api_key` |
 | `400` | `invalid SSH private key: <reason>` | PEM parse failure / passphrase-protected |
 | `500` | `SSH key encryption not configured` | `ssh_key_secret` is blank in config |
 | `503` | `user settings not configured` | User repo not wired (`UserRepo == nil`) |
